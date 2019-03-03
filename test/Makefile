@@ -6,7 +6,7 @@ INCLUDE=-I /usr/local/include/gtest -I ../include
 all: test
 
 test: main.cpp ../include/*
-	$(CC) main.cpp -o test $(LDFLAGS) $(CFLAGS) $(INCLUDE)
+	$(CC) main.cpp -o test.out $(LDFLAGS) $(CFLAGS) $(INCLUDE)
 
 clean:
-	rm -rf *.o *~ *.h test
+	rm -rf *.o *~ *.h test.out
