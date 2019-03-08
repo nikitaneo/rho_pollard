@@ -1,5 +1,5 @@
 CC=/usr/bin/g++-4.8
-CFLAGS=-std=c++11 -g -O0
+CFLAGS=-std=c++11 -O0 -g
 LDFLAGS=-lgtest -lgtest_main -L/usr/lib -lpthread
 INCLUDE=-I /usr/local/include/gtest -I ../include
 

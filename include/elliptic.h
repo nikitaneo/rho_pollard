@@ -7,6 +7,29 @@
 // helper functions
 namespace detail
 {
+
+template<typename T>
+T mulmod(const T &A, const T &B, const T &mod) 
+{ 
+    T res = 0; // Initialize result 
+    T a = A % mod;
+    T b = B % mod; 
+    while (b > 0) 
+    { 
+        if (b & 1 == 1) 
+            res = (res + a) % mod; 
+  
+        // Multiply 'a' with 2 
+        a = (a << 1) % mod; 
+  
+        // Divide b by 2 
+        b >>= 1; 
+    } 
+  
+    // Return result 
+    return res % mod; 
+}
+
 //From Knuth; Extended GCD gives g = a*u + b*v
 template<typename T>
 T EGCD(const T &a, const T &b, T &u, T &v)
@@ -35,22 +58,21 @@ T EGCD(const T &a, const T &b, T &u, T &v)
 }
 
 template<typename T>
-T InvMod(T x, T n) // Solve linear congruence equation x * z == 1 (mod n) for z
+T InvMod(const T &x, const T &n) // Solve linear congruence equation x * z == 1 (mod n) for z
 {
     //n = Abs(n);
-    x = x % n; // % is the remainder function, 0 <= x % n < |n|
+    T X = x % n;
     T u, v, g, z;
-    g = EGCD(x, n, u, v);
-    if (g != 1)
+    g = EGCD(X, n, u, v);
+    if(g != 1)
     {
-        // x and n have to be relative prime for there to exist an x^-1 mod n
         z = 0;
     }
     else
     {
         z = u % n;
     }
-    return z;
+    return z < 0 ? z + n : z;
 }
 } // namespace detail
 
@@ -98,6 +120,9 @@ class FiniteFieldElement
 
     // access "raw" integer
     T i() const { return i_; }
+
+    T p() const { return P; }
+
     // negate
     FiniteFieldElement operator-() const
     {
@@ -114,13 +139,18 @@ class FiniteFieldElement
     // *=
     FiniteFieldElement<T> &operator*=(const FiniteFieldElement<T> &rhs)
     {
-        i_ = (i_ * rhs.i_) % P;
+        i_ = detail::mulmod(i_, rhs.i_, P);
         return *this;
     }
     // ==
     friend bool operator==(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
     {
         return (lhs.i_ == rhs.i_);
+    }
+    // !=
+    friend bool operator!=(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
+    {
+        return !(lhs.i_ == rhs.i_);
     }
     // == int
     friend bool operator==(const FiniteFieldElement<T> &lhs, const T &rhs)
@@ -135,7 +165,7 @@ class FiniteFieldElement
     // a / b
     friend FiniteFieldElement<T> operator/(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
     {
-        return FiniteFieldElement<T>(lhs.i_ * detail::InvMod(rhs.i_, rhs.P), rhs.P);
+        return FiniteFieldElement<T>(detail::mulmod(lhs.i_, detail::InvMod(rhs.i_, rhs.P), rhs.P), rhs.P);
     }
     // a + b
     friend FiniteFieldElement<T> operator+(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
@@ -165,7 +195,7 @@ class FiniteFieldElement
     // a * b
     friend FiniteFieldElement<T> operator*(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
     {
-        return FiniteFieldElement<T>(lhs.i_ * rhs.i_, rhs.P);
+        return FiniteFieldElement<T>(detail::mulmod(lhs.i_, rhs.i_, rhs.P), rhs.P);
     }
 
     // ostream handler
@@ -208,28 +238,29 @@ class EllipticCurve
         ffe_t x_;
         ffe_t y_;
         const EllipticCurve *ec_;
+        mutable T order{-1};
 
         // core of the doubling multiplier algorithm (see below)
         // multiplies acc by m as a series of "2*acc's"
-        void addDouble(const T &m, Point &acc)
+        void addDouble(const T &m)
         {
             if (m > 0)
             {
-                Point r = acc;
+                Point r = *this;
                 for (T n = 0; n < m; ++n)
                 {
                     r += r; // doubling step
                 }
-                acc = r;
+                *this = r;
             }
         }
         // doubling multiplier algorithm
         // multiplies a by k by expanding in multiplies by 2
         // a is also an accumulator that stores the intermediate results
         // between the "1s" of the binary form of the input scalar k
-        Point scalarMultiply(const T &k, const Point &a)
+        Point scalarMultiply(const T &k) const
         {
-            Point acc = a;
+            Point acc = *this;
             Point res = Point(0, 0, *ec_);
             T i = 0, j = 0;
             T b = k;
@@ -239,7 +270,7 @@ class EllipticCurve
                 if ((b & 1) != 0)
                 {
                     // bit is set; acc = 2^(i-j)*acc
-                    addDouble(i - j, acc);
+                    acc.addDouble(i - j);
                     res += acc;
                     j = i; // last bit set
                 }
@@ -266,7 +297,7 @@ class EllipticCurve
             }
             if (y1 == -y2)
             {
-                xR = yR = ffe_t(0, ec_->p());
+                xR = yR = ffe_t(0, ec_->Degree());
                 return;
             }
 
@@ -275,8 +306,8 @@ class EllipticCurve
             if (x1 == x2 && y1 == y2)
             {
                 //2P
-                s = (3 * (x1.i() * x1.i()) + ec_->a()) / (2 * y1);
-                xR = ((s * s) - 2 * x1);
+                s = (3 * detail::mulmod(x1.i(), x1.i(), ec_->P) + ec_->a()) / (2 * y1);
+                xR = s * s - 2 * x1;
             }
             else
             {
@@ -291,7 +322,7 @@ class EllipticCurve
             }
             else
             {
-                xR = yR = ffe_t(0, ec_->p());
+                xR = yR = ffe_t(0, ec_->Degree());
             }
         }
 
@@ -305,10 +336,11 @@ class EllipticCurve
       public:
         static Point ONE;
 
-        Point(const T &x, const T &y, const EllipticCurve<T> &EC)
+        Point(const T &x, const T &y, const EllipticCurve<T> &EC, const T& o = -1)
             : x_(x, EC.P),
               y_(y, EC.P),
-              ec_(&EC)
+              ec_(&EC),
+              order(o)
         {
         }
 
@@ -318,6 +350,7 @@ class EllipticCurve
             x_ = rhs.x_;
             y_ = rhs.y_;
             ec_ = rhs.ec_;
+            order = rhs.order;
         }
         // assignment
         Point &operator=(const Point &rhs)
@@ -325,6 +358,7 @@ class EllipticCurve
             x_ = rhs.x_;
             y_ = rhs.y_;
             ec_ = rhs.ec_;
+            order = rhs.order;
             return *this;
         }
         // access x component as element of Fp
@@ -332,21 +366,24 @@ class EllipticCurve
         // access y component as element of Fp
         ffe_t y() const { return y_; }
 
-        // calculate the order of this point by brute-force additions
-        // WARNING: this can be VERY slow if the period is long and might not even converge
-        // so maxPeriod should probably be set to something sensible...
-        unsigned int Order(unsigned int maxPeriod = ~0) const
+        const EllipticCurve *curve() const { return ec_; }
+
+        T Order() const
         {
+            if(order != -1)
+                return order;
+
             Point r = *this;
-            unsigned int n = 0;
-            while (r.x_ != 0 && r.y_ != 0)
+            T n = 0;
+            do
             {
                 ++n;
                 r += *this;
-                if (n > maxPeriod)
-                    break;
             }
-            return n;
+            while(r != *this);
+
+            order = n;
+            return order;
         }
 
         Point operator-()
@@ -366,10 +403,7 @@ class EllipticCurve
 
         friend Point operator+(const Point &lhs, const Point &rhs)
         {
-            if(lhs == rhs)
-                return lhs.scalarMultiply(2, lhs);
-
-            ffe_t xR(0, lhs.ec_->p()), yR(0, lhs.ec_->p());
+            ffe_t xR(0, lhs.ec_->Degree()), yR(0, lhs.ec_->Degree());
             lhs.add(lhs.x_, lhs.y_, rhs.x_, rhs.y_, xR, yR);
             return Point(xR, yR, *lhs.ec_);
         }
@@ -387,7 +421,14 @@ class EllipticCurve
 
         Point &operator*=(const T &k)
         {
-            return (*this = scalarMultiply(k, *this));
+            return (*this = scalarMultiply(k));
+        }
+
+        bool check()
+        {
+            if(y_*y_ == x_*x_*x_ + ec_->a() * x_ + ec_->b())
+                return true;
+            return false;
         }
 
         friend std::ostream &operator<<(std::ostream &os, const Point &p)
@@ -414,20 +455,20 @@ class EllipticCurve
 
     // Calculate *all* the points (group elements) for this EC
     //NOTE: if the order of this curve is large this could take some time...
-    void CalculatePoints()
+    T CalculatePoints()
     {
-        uint256 x_val[P];
-        uint256 y_val[P];
-        for (int n = 0; n < P; ++n)
+        T x_val[P];
+        T y_val[P];
+        for (T n = 0; n < P; ++n)
         {
-            int nsq = n * n;
+            T nsq = n * n;
             x_val[n] = ((n * nsq) + a_.i() * n + b_.i()) % P;
             y_val[n] = nsq % P;
         }
 
-        for (int n = 0; n < P; ++n)
+        for (T n = 0; n < P; ++n)
         {
-            for (int m = 0; m < P; ++m)
+            for (T m = 0; m < P; ++m)
             {
                 if (x_val[n] == y_val[m])
                 {
@@ -437,6 +478,7 @@ class EllipticCurve
         }
 
         table_filled_ = true;
+        return m_table_.size();
     }
 
     // get a point (group element) on the curve
@@ -458,8 +500,6 @@ class EllipticCurve
     FiniteFieldElement<T> a() const { return a_; }
     // the paramter b (as an element of Fp)
     FiniteFieldElement<T> b() const { return b_; }
-
-    T p() const { return P; }
 
     // ostream handler: print this curve in human readable form
     template<typename S>
@@ -494,7 +534,7 @@ class EllipticCurve
     m_table_t m_table_;       // table of points
     FiniteFieldElement<T> a_; // paramter a of the EC equation
     FiniteFieldElement<T> b_; // parameter b of the EC equation
-    T P; // parameter p of the EC equation
+    T P; // group order
     bool table_filled_;       // true if the table has been calculated
 };
 
