@@ -121,7 +121,7 @@ TEST(Detail, Inverse)
     ASSERT_EQ(detail::InvMod(a, b) * a % b, 1);
 }
 
-
+// Fix: test fails in case of i >= 3, need to fix
 TEST(ELLIPTIC_CURVE, rho_pollard_32)
 {
     int p = 751;
