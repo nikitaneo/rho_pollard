@@ -1,5 +1,4 @@
 #include <iostream>
-#include <uint256.h>
 
 #ifndef ELLIPTIC_H
 #define ELLIPTIC_H
@@ -16,7 +15,7 @@ T mulmod(const T &A, const T &B, const T &mod)
     T b = B % mod; 
     while (b > 0) 
     { 
-        if (b & 1 == 1) 
+        if ((b & 1) == 1) 
             res = (res + a) % mod; 
   
         // Multiply 'a' with 2 
@@ -90,15 +89,11 @@ class FiniteFieldElement
 
     void assign(const T &i)
     {
-        i_ = i;
+        i_ = i % P;
         if (i < 0)
         {
-            // ensure (-i) mod p correct behaviour
-            // the (i%P) term is to ensure that i is in the correct range before normalizing
-            i_ = (i % P) + 2 * P;
+            i_ += P;
         }
-
-        i_ %= P;
     }
 
   public:
@@ -297,7 +292,7 @@ class EllipticCurve
             }
             if (y1 == -y2)
             {
-                xR = yR = ffe_t(0, ec_->Degree());
+                xR = yR = ffe_t(0, ec_->p());
                 return;
             }
 
@@ -322,7 +317,7 @@ class EllipticCurve
             }
             else
             {
-                xR = yR = ffe_t(0, ec_->Degree());
+                xR = yR = ffe_t(0, ec_->p());
             }
         }
 
@@ -403,7 +398,7 @@ class EllipticCurve
 
         friend Point operator+(const Point &lhs, const Point &rhs)
         {
-            ffe_t xR(0, lhs.ec_->Degree()), yR(0, lhs.ec_->Degree());
+            ffe_t xR(0, lhs.ec_->p()), yR(0, lhs.ec_->p());
             lhs.add(lhs.x_, lhs.y_, rhs.x_, rhs.y_, xR, yR);
             return Point(xR, yR, *lhs.ec_);
         }
@@ -447,116 +442,27 @@ class EllipticCurve
     EllipticCurve(const T &a, const T &b, const T &p)
         : a_(a, p),
           b_(b, p),
-          P(p),
-          m_table_(),
-          table_filled_(false)
+          P(p)
     {
     }
 
-    // Calculate *all* the points (group elements) for this EC
-    //NOTE: if the order of this curve is large this could take some time...
-    T CalculatePoints()
-    {
-        T x_val[P];
-        T y_val[P];
-        for (T n = 0; n < P; ++n)
-        {
-            T nsq = n * n;
-            x_val[n] = ((n * nsq) + a_.i() * n + b_.i()) % P;
-            y_val[n] = nsq % P;
-        }
-
-        for (T n = 0; n < P; ++n)
-        {
-            for (T m = 0; m < P; ++m)
-            {
-                if (x_val[n] == y_val[m])
-                {
-                    m_table_.push_back(Point(n, m, *this));
-                }
-            }
-        }
-
-        table_filled_ = true;
-        return m_table_.size();
-    }
-
-    // get a point (group element) on the curve
-    Point operator[](int n)
-    {
-        if (!table_filled_)
-        {
-            CalculatePoints();
-        }
-
-        return m_table_[n];
-    }
-
-    // number of elements in this group
-    size_t Size() const { return m_table_.size(); }
     // the degree P of this EC
-    T Degree() const { return P; }
+    T p() const { return P; }
     // the parameter a (as an element of Fp)
     FiniteFieldElement<T> a() const { return a_; }
     // the paramter b (as an element of Fp)
     FiniteFieldElement<T> b() const { return b_; }
 
-    // ostream handler: print this curve in human readable form
-    template<typename S>
-    friend std::ostream &operator<<(std::ostream &os, const EllipticCurve<S> &EllipticCurve);
-    // print all the elements of the EC group
-    std::ostream &PrintTable(std::ostream &os, int columns = 4)
-    {
-        if (table_filled_)
-        {
-            int col = 0;
-            typename EllipticCurve<T>::m_table_t::iterator iter = m_table_.begin();
-            for (; iter != m_table_.end(); ++iter)
-            {
-                os << "(" << (*iter).x_.i() << ", " << (*iter).y_.i() << ") ";
-                if (++col > columns)
-                {
-                    os << "\n";
-                    col = 0;
-                }
-            }
-        }
-        else
-        {
-            os << "EllipticCurve, F_" << P;
-        }
-        return os;
-    }
 
   private:
     typedef std::vector<Point> m_table_t;
 
-    m_table_t m_table_;       // table of points
     FiniteFieldElement<T> a_; // paramter a of the EC equation
     FiniteFieldElement<T> b_; // parameter b of the EC equation
     T P; // group order
-    bool table_filled_;       // true if the table has been calculated
 };
 
 template <typename T>
 typename EllipticCurve<T>::Point EllipticCurve<T>::Point::ONE(0, 0);
-
-template <typename T>
-std::ostream &operator<<(std::ostream &os, const EllipticCurve<T> &EllipticCurve)
-{
-    os << "y^2 mod " << EllipticCurve.P << " = (x^3" << std::showpos;
-    if (EllipticCurve.a_ != 0)
-    { 
-        os << EllipticCurve.a_ << "x";
-    }
-
-    if (EllipticCurve.b_.i() != 0)
-    {
-        os << EllipticCurve.b_;
-    }
-
-    os << std::noshowpos << ") mod " << EllipticCurve.P;
-    return os;
-}
 
 #endif
