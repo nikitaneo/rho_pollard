@@ -3,12 +3,14 @@
 #ifndef ELLIPTIC_H
 #define ELLIPTIC_H
 
+#define CUDA_CALLABLE __host__ __device__
+
 // helper functions
 namespace detail
 {
 
 template<typename T>
-T mulmod(const T &A, const T &B, const T &mod) 
+CUDA_CALLABLE T mulmod(const T &A, const T &B, const T &mod) 
 { 
     T res = 0; // Initialize result 
     T a = A % mod;
@@ -31,7 +33,7 @@ T mulmod(const T &A, const T &B, const T &mod)
 
 //From Knuth; Extended GCD gives g = a*u + b*v
 template<typename T>
-T EGCD(const T &a, const T &b, T &u, T &v)
+CUDA_CALLABLE T EGCD(const T &a, const T &b, T &u, T &v)
 {
     u = 1;
     v = 0;
@@ -57,7 +59,7 @@ T EGCD(const T &a, const T &b, T &u, T &v)
 }
 
 template<typename T>
-T InvMod(const T &x, const T &n) // Solve linear congruence equation x * z == 1 (mod n) for z
+CUDA_CALLABLE T InvMod(const T &x, const T &n) // Solve linear congruence equation x * z == 1 (mod n) for z
 {
     //n = Abs(n);
     T X = x % n;
@@ -87,7 +89,7 @@ class FiniteFieldElement
     T i_;
     T P;
 
-    void assign(const T &i)
+    CUDA_CALLABLE void assign(const T &i)
     {
         i_ = i % P;
         if (i < 0)
@@ -98,105 +100,98 @@ class FiniteFieldElement
 
   public:
     // ctor
-    FiniteFieldElement()
+    CUDA_CALLABLE FiniteFieldElement()
         : i_(0), P(0)
     {
     }
     // ctor
-    explicit FiniteFieldElement(const T &i, const T &p) : P(p)
+    CUDA_CALLABLE explicit FiniteFieldElement(const T &i, const T &p) : P(p)
     {
         assign(i);
     }
     // copy ctor
-    FiniteFieldElement(const FiniteFieldElement<T> &rhs)
+    CUDA_CALLABLE FiniteFieldElement(const FiniteFieldElement<T> &rhs)
         : i_(rhs.i_), P(rhs.P)
     {
     }
 
     // access "raw" integer
-    T i() const { return i_; }
+    CUDA_CALLABLE T i() const { return i_; }
 
-    T p() const { return P; }
+    CUDA_CALLABLE T p() const { return P; }
 
     // negate
-    FiniteFieldElement operator-() const
+    CUDA_CALLABLE FiniteFieldElement operator-() const
     {
         return FiniteFieldElement(-i_, P);
     }
 
-    // assign from field element
-    FiniteFieldElement<T> &operator=(const FiniteFieldElement<T> &rhs)
+    CUDA_CALLABLE FiniteFieldElement<T> &operator=(const FiniteFieldElement<T> &rhs)
     {
         i_ = rhs.i_;
         P = rhs.P;
         return *this;
     }
-    // *=
-    FiniteFieldElement<T> &operator*=(const FiniteFieldElement<T> &rhs)
+
+    CUDA_CALLABLE FiniteFieldElement<T> &operator*=(const FiniteFieldElement<T> &rhs)
     {
         i_ = detail::mulmod(i_, rhs.i_, P);
         return *this;
     }
-    // ==
-    friend bool operator==(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
+
+    CUDA_CALLABLE friend bool operator==(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
     {
         return (lhs.i_ == rhs.i_);
     }
-    // !=
-    friend bool operator!=(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
+
+    CUDA_CALLABLE friend bool operator!=(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
     {
         return !(lhs.i_ == rhs.i_);
     }
-    // == int
-    friend bool operator==(const FiniteFieldElement<T> &lhs, const T &rhs)
+
+    CUDA_CALLABLE friend bool operator==(const FiniteFieldElement<T> &lhs, const T &rhs)
     {
         return (lhs.i_ == rhs);
     }
-    // !=
-    friend bool operator!=(const FiniteFieldElement<T> &lhs, const T &rhs)
+
+    CUDA_CALLABLE friend bool operator!=(const FiniteFieldElement<T> &lhs, const T &rhs)
     {
         return (lhs.i_ != rhs);
     }
-    // a / b
-    friend FiniteFieldElement<T> operator/(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
+
+    CUDA_CALLABLE friend FiniteFieldElement<T> operator/(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
     {
         return FiniteFieldElement<T>(detail::mulmod(lhs.i_, detail::InvMod(rhs.i_, rhs.P), rhs.P), rhs.P);
     }
-    // a + b
-    friend FiniteFieldElement<T> operator+(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
+ 
+    CUDA_CALLABLE friend FiniteFieldElement<T> operator+(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
     {
         return FiniteFieldElement<T>(lhs.i_ + rhs.i_, rhs.P);
     }
-    // a - b
-    friend FiniteFieldElement<T> operator-(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
+
+    CUDA_CALLABLE friend FiniteFieldElement<T> operator-(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
     {
         return FiniteFieldElement<T>(lhs.i_ - rhs.i_, rhs.P);
     }
-    // a + int
-    friend FiniteFieldElement<T> operator+(const FiniteFieldElement<T> &lhs, const T &i)
+
+    CUDA_CALLABLE friend FiniteFieldElement<T> operator+(const FiniteFieldElement<T> &lhs, const T &i)
     {
         return FiniteFieldElement<T>(lhs.i_ + i, lhs.P);
     }
-    // int + a
-    friend FiniteFieldElement<T> operator+(const T &i, const FiniteFieldElement<T> &rhs)
+
+    CUDA_CALLABLE friend FiniteFieldElement<T> operator+(const T &i, const FiniteFieldElement<T> &rhs)
     {
         return FiniteFieldElement<T>(rhs.i_ + i, rhs.P);
     }
-    // int * a
-    friend FiniteFieldElement<T> operator*(const T &n, const FiniteFieldElement<T> &rhs)
+
+    CUDA_CALLABLE friend FiniteFieldElement<T> operator*(const T &n, const FiniteFieldElement<T> &rhs)
     {
         return FiniteFieldElement<T>(n * rhs.i_, rhs.P);
     }
-    // a * b
-    friend FiniteFieldElement<T> operator*(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
+
+    CUDA_CALLABLE friend FiniteFieldElement<T> operator*(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
     {
         return FiniteFieldElement<T>(detail::mulmod(lhs.i_, rhs.i_, rhs.P), rhs.P);
-    }
-
-    // ostream handler
-    friend std::ostream &operator<<(std::ostream &os, const FiniteFieldElement<T> &g)
-    {
-        return os << g.i_;
     }
 };
 
@@ -232,12 +227,13 @@ class EllipticCurve
         typedef FiniteFieldElement<T> ffe_t;
         ffe_t x_;
         ffe_t y_;
-        const EllipticCurve *ec_;
-        mutable T order{-1};
+        ffe_t a_;
+        ffe_t b_;
+        T p_;
 
         // core of the doubling multiplier algorithm (see below)
         // multiplies acc by m as a series of "2*acc's"
-        void addDouble(const T &m)
+        CUDA_CALLABLE void addDouble(const T &m)
         {
             if (m > 0)
             {
@@ -253,10 +249,10 @@ class EllipticCurve
         // multiplies a by k by expanding in multiplies by 2
         // a is also an accumulator that stores the intermediate results
         // between the "1s" of the binary form of the input scalar k
-        Point scalarMultiply(const T &k) const
+        CUDA_CALLABLE Point scalarMultiply(const T &k) const
         {
             Point acc = *this;
-            Point res = Point(0, 0, *ec_);
+            Point res = Point(0, 0, a_.i(), b_.i(), p_);
             T i = 0, j = 0;
             T b = k;
 
@@ -275,7 +271,7 @@ class EllipticCurve
             return res;
         }
         // adding two points on the curve
-        void add(ffe_t x1, ffe_t y1, ffe_t x2, ffe_t y2, ffe_t &xR, ffe_t &yR) const
+        CUDA_CALLABLE void add(ffe_t x1, ffe_t y1, ffe_t x2, ffe_t y2, ffe_t &xR, ffe_t &yR) const
         {
             // special cases involving the additive identity
             if (x1 == 0 && y1 == 0)
@@ -292,16 +288,16 @@ class EllipticCurve
             }
             if (y1 == -y2)
             {
-                xR = yR = ffe_t(0, ec_->p());
+                xR = yR = ffe_t(0, p_);
                 return;
             }
 
             // the additions
-            ffe_t s(0, ec_->P);
+            ffe_t s(0, p_);
             if (x1 == x2 && y1 == y2)
             {
                 //2P
-                s = (3 * detail::mulmod(x1.i(), x1.i(), ec_->P) + ec_->a()) / (2 * y1);
+                s = (3 * detail::mulmod(x1.i(), x1.i(), p_) + a_) / (2 * y1);
                 xR = s * s - 2 * x1;
             }
             else
@@ -317,148 +313,142 @@ class EllipticCurve
             }
             else
             {
-                xR = yR = ffe_t(0, ec_->p());
+                xR = yR = ffe_t(0, p_);
             }
         }
 
-        Point(const ffe_t &x, const ffe_t &y, const EllipticCurve<T> &EC)
+        CUDA_CALLABLE Point(const ffe_t &x, const ffe_t &y, const EllipticCurve<T> &ec)
             : x_(x),
               y_(y),
-              ec_(&EC)
+              a_(ec.a()),
+              b_(ec.b()),
+              p_(ec.p())
         {
         }
 
       public:
         static Point ONE;
 
-        Point(const T &x, const T &y, const EllipticCurve<T> &EC, const T& o = -1)
-            : x_(x, EC.P),
-              y_(y, EC.P),
-              ec_(&EC),
-              order(o)
+        CUDA_CALLABLE Point() : x_(0, 1), y_(0, 1), a_(0, 1), b_(0, 1), p_(1)
         {
         }
 
-        // copy ctor
-        Point(const Point &rhs)
+        CUDA_CALLABLE Point(const T &x, const T &y, const EllipticCurve<T> &ec)
+            : x_(x, ec.p()),
+              y_(y, ec.p()),
+              a_(ec.a()),
+              b_(ec.b()),
+              p_(ec.p())
         {
-            x_ = rhs.x_;
-            y_ = rhs.y_;
-            ec_ = rhs.ec_;
-            order = rhs.order;
+            // do nothing
         }
-        // assignment
-        Point &operator=(const Point &rhs)
+
+        CUDA_CALLABLE Point(const T &x, const T &y, const T &a, const T &b, const T &p)
+            : x_(x, p),
+              y_(y, p),
+              a_(a, p),
+              b_(b, p),
+              p_(p)
+
+        {
+            // do nothing
+        }
+
+        CUDA_CALLABLE Point(const Point &rhs)
         {
             x_ = rhs.x_;
             y_ = rhs.y_;
-            ec_ = rhs.ec_;
-            order = rhs.order;
+            a_ = rhs.a_;
+            b_ = rhs.b_;
+            p_ = rhs.p_;
+        }
+
+        CUDA_CALLABLE Point &operator=(const Point &rhs)
+        {
+            x_ = rhs.x_;
+            y_ = rhs.y_;
+            a_ = rhs.a_;
+            b_ = rhs.b_;
+            p_ = rhs.p_;
             return *this;
         }
-        // access x component as element of Fp
-        ffe_t x() const { return x_; }
-        // access y component as element of Fp
-        ffe_t y() const { return y_; }
 
-        const EllipticCurve *curve() const { return ec_; }
+        CUDA_CALLABLE ffe_t x() const { return x_; }
 
-        T Order() const
+        CUDA_CALLABLE ffe_t y() const { return y_; }
+
+        CUDA_CALLABLE Point operator-()
         {
-            if(order != -1)
-                return order;
-
-            Point r = *this;
-            T n = 0;
-            do
-            {
-                ++n;
-                r += *this;
-            }
-            while(r != *this);
-
-            order = n;
-            return order;
+            return Point(x_, -y_, a_, b_, p_);
         }
 
-        Point operator-()
+        CUDA_CALLABLE friend bool operator==(const Point &lhs, const Point &rhs)
         {
-            return Point(x_, -y_, *ec_);
+            return (lhs.a_ == rhs.a_) && (lhs.b_ == rhs.b_) && (lhs.p_ == rhs.p_) && (lhs.x_ == rhs.x_) && (lhs.y_ == rhs.y_);
         }
 
-        friend bool operator==(const Point &lhs, const Point &rhs)
+        CUDA_CALLABLE friend bool operator!=(const Point &lhs, const Point &rhs)
         {
-            return (lhs.ec_ == rhs.ec_) && (lhs.x_ == rhs.x_) && (lhs.y_ == rhs.y_);
+            return !(lhs == rhs);
         }
 
-        friend bool operator!=(const Point &lhs, const Point &rhs)
+        CUDA_CALLABLE friend Point operator+(const Point &lhs, const Point &rhs)
         {
-            return (lhs.ec_ != rhs.ec_) || (lhs.x_ != rhs.x_) || (lhs.y_ != rhs.y_);
-        }
-
-        friend Point operator+(const Point &lhs, const Point &rhs)
-        {
-            ffe_t xR(0, lhs.ec_->p()), yR(0, lhs.ec_->p());
+            ffe_t xR(0, lhs.p_), yR(0, lhs.p_);
             lhs.add(lhs.x_, lhs.y_, rhs.x_, rhs.y_, xR, yR);
-            return Point(xR, yR, *lhs.ec_);
+            return Point(xR.i(), yR.i(), lhs.a_.i(), lhs.b_.i(), lhs.p_);
         }
 
-        friend Point operator*(const T &k, const Point &rhs)
+        CUDA_CALLABLE friend Point operator*(const T &k, const Point &rhs)
         {
             return Point(rhs).operator*=(k);
         }
 
-        Point &operator+=(const Point &rhs)
+        CUDA_CALLABLE Point &operator+=(const Point &rhs)
         {
             add(x_, y_, rhs.x_, rhs.y_, x_, y_);
             return *this;
         }
 
-        Point &operator*=(const T &k)
+        CUDA_CALLABLE Point &operator*=(const T &k)
         {
             return (*this = scalarMultiply(k));
         }
 
-        bool check()
+        friend std::ostream &operator<<(std::ostream &os, const Point &p)
         {
-            if(y_*y_ == x_*x_*x_ + ec_->a() * x_ + ec_->b())
+            return (os << "(" << p.x_.i() << ", " << p.y_.i() << ")");
+        }
+
+        CUDA_CALLABLE bool check()
+        {
+            if(y_*y_ == x_*x_*x_ + a_ * x_ + b_)
                 return true;
             return false;
         }
-
-        friend std::ostream &operator<<(std::ostream &os, const Point &p)
-        {
-            return (os << "(" << p.x_ << ", " << p.y_ << ")");
-        }
     };
-
-    // ==================================================== EllipticCurve impl
 
     typedef EllipticCurve<T> this_t;
     typedef class EllipticCurve<T>::Point point_t;
 
-    // ctor
     // Initialize EC as y^2 = x^3 + ax + b
-    EllipticCurve(const T &a, const T &b, const T &p)
+    CUDA_CALLABLE EllipticCurve(const T &a, const T &b, const T &p)
         : a_(a, p),
           b_(b, p),
           P(p)
     {
     }
 
-    // the degree P of this EC
-    T p() const { return P; }
-    // the parameter a (as an element of Fp)
-    FiniteFieldElement<T> a() const { return a_; }
-    // the paramter b (as an element of Fp)
-    FiniteFieldElement<T> b() const { return b_; }
+    CUDA_CALLABLE T p() const { return P; }
+
+    CUDA_CALLABLE FiniteFieldElement<T> a() const { return a_; }
+
+    CUDA_CALLABLE FiniteFieldElement<T> b() const { return b_; }
 
 
   private:
-    typedef std::vector<Point> m_table_t;
-
-    FiniteFieldElement<T> a_; // paramter a of the EC equation
-    FiniteFieldElement<T> b_; // parameter b of the EC equation
+    FiniteFieldElement<T> a_;
+    FiniteFieldElement<T> b_;
     T P; // group order
 };
 

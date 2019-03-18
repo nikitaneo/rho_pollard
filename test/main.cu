@@ -1,85 +1,12 @@
-#include <stdio.h>
 #include <gtest/gtest.h>
 #include <iostream>
-#include <cmath>
-#include <int256.h>
-#include <elliptic.h>
-#include <random>
-#include <boost/random.hpp>
-#include <boost/multiprecision/cpp_int.hpp>
-
-#define POLLARD_SET_COUNT 16
-
-// TODO: Proper partition should be implemented
-template<typename T>
-void iteration( typename EllipticCurve<T>::Point &r,
-                T &c,
-                T &d,
-                const std::vector<T> &a,
-                const std::vector<T> &b,
-                const std::vector<typename EllipticCurve<T>::Point> &R,
-                const T& order )
-{
-    unsigned index = r.x().i() & 0xF;
-    r += R[index];
-    c = (c + a[index]) % order;
-    d = (d + b[index]) % order;
-}
-
-// Solve Q = xP
-template<typename T>
-T rho_pollard( const typename EllipticCurve<T>::Point &Q, const typename EllipticCurve<T>::Point &P )
-{
-    T order = P.Order();
-
-    boost::random::independent_bits_engine<boost::random::mt19937, sizeof(T)*4, T> gen;
-    gen.seed(time(NULL));
-
-    T c1, c2, d1, d2;
-    std::vector<T> a(POLLARD_SET_COUNT);
-    std::vector<T> b(POLLARD_SET_COUNT);
-    std::vector<typename EllipticCurve<T>::Point> R(POLLARD_SET_COUNT, P);
-    while( true )
-    {
-        for(unsigned i = 0; i < POLLARD_SET_COUNT; i++)
-        {
-            a[i] = gen() % order;
-            b[i] = gen() % order;
-            R[i] = a[i] * P + b[i] * Q;
-        }
-
-        c1 = c2 = gen() % order;
-        d1 = d2 = gen() % order;
-        typename EllipticCurve<T>::Point X1 = c1 * P + d1 * Q;
-        typename EllipticCurve<T>::Point X2 = X1;
-        
-        do
-        {
-            iteration(X1, c1, d1, a, b, R, order);
-            iteration(X2, c2, d2, a, b, R, order);
-            iteration(X2, c2, d2, a, b, R, order);
-        }
-        while(X1 != X2);
-
-        if(c1 * P + d1 * Q != X1 || c2 * P + d2 * Q != X2 || !X1.check())
-        {
-            continue;
-        }
-
-        T c = c1 - c2; if(c < 0) c += order;
-        T d = d2 - d1; if(d < 0) d += order;
-        if(d == 0)
-            continue;
-        T d_inv = detail::InvMod(d, order); if(d_inv < 0) d_inv += order;
-
-        return (c * d_inv) % order;
-    }
-}
+#include <int128_t.h>
+#include <pollard.h>
 
 TEST(INT256, Simple)
 {
-    base_uint<64> a = -5;
-    base_uint<64> b = 10;
+    int128_t a = -5;
+    int128_t b = 10;
     ASSERT_EQ(a + b, 5);
     ASSERT_EQ(-a, 5);
     ASSERT_EQ(-2 * a, 10);
@@ -91,25 +18,30 @@ TEST(INT256, Simple)
     ASSERT_EQ(-2 * b, 4 * a);
     ASSERT_EQ(b - a, 15);
     ASSERT_EQ(b * a, -50);
-    ASSERT_EQ(b % 2, 0);
-    ASSERT_EQ(a * 2, -10);
-    ASSERT_EQ(a * (-1), 5);
-    ASSERT_EQ(a / 1, -5);
-    ASSERT_EQ(a % 3, -2);
-    ASSERT_EQ(a < -2, false);
-    ASSERT_EQ(b > a, true);
     ASSERT_EQ(b >> 1, 5);
     ASSERT_EQ(b << 1, 20);
+    ASSERT_EQ(b << 2, 40);
+    ASSERT_EQ(a / 1, -5);
+    ASSERT_EQ(a * 2, -10);
+    ASSERT_EQ(a * (-1), 5);
+    ASSERT_EQ(a < -2, false);
+    ASSERT_EQ(b > a, true);
     ASSERT_EQ(++b, 11);
     ASSERT_EQ(++a, -4);
     ASSERT_EQ(--a, -5);
     ASSERT_EQ(a += 1, -4);
     ASSERT_EQ(a -= 1, -5);
+    ASSERT_EQ(a - 1, -6);
+    ASSERT_EQ(b - 1, 10);
+    ASSERT_EQ(b / 2, 5);
+    ASSERT_EQ(b / 2 * 2, 10);
+    ASSERT_EQ(b % 2, 1);
+    ASSERT_EQ(a % 3, -2);
 }
 
 TEST(Detail, EGCD)
 {
-    base_uint<64> a = 612, b = 342, x = 0, y = 0;
+    int128_t a = 612, b = 342, x = 0, y = 0;
     ASSERT_EQ(detail::EGCD(a, b, x, y), 18);
     ASSERT_EQ(x, -5);
     ASSERT_EQ(y, 9);
@@ -117,44 +49,57 @@ TEST(Detail, EGCD)
 
 TEST(Detail, Inverse)
 {
-    base_uint<64> a = 4, b = 101;
+    int128_t a = 4, b = 101;
     ASSERT_EQ(detail::InvMod(a, b) * a % b, 1);
 }
 
-// Fix: test fails in case of i >= 3, need to fix
-TEST(ELLIPTIC_CURVE, rho_pollard_32)
+TEST(ELLIPTIC_CURVE, rho_pollard_CPU)
 {
     int p = 751;
     int a = -1;
     int b = 1;
 
     EllipticCurve<int> ec(a, b, p);
-    EllipticCurve<int>::Point P(0, 1, ec, 31);
+    EllipticCurve<int>::Point P(0, 1, ec);
 
     for(int i = 1; i < 31; i++)
     {
-        ASSERT_EQ(rho_pollard<int>(i * P, P), i);
+        ASSERT_EQ(cpu::rho_pollard<int>(i * P, P, 31), i);
         std::cout << "success #" << i << std::endl;
     }
 }
 
-/*
-TEST(ELLIPTIC_CURVE, rho_pollard_32)
+TEST(ELLIPTIC_CURVE, rho_pollard_GPU)
 {
-    base_uint<64> p = 751;
-    base_uint<64> a = -1;
-    base_uint<64> b = 1;
+    int p = 751;
+    int a = -1;
+    int b = 1;
 
-    EllipticCurve<base_uint<64>> ec(a, b, p);
-    EllipticCurve<base_uint<64>>::Point P(0, 1, ec, 31);
+    EllipticCurve<int> ec(a, b, p);
+    EllipticCurve<int>::Point P(0, 1, ec);
 
     for(int i = 1; i < 31; i++)
     {
-        EXPECT_EQ(rho_pollard<base_uint<64>>(i * P, P), i);
+        ASSERT_EQ(gpu::rho_pollard<int>(i * P, P, 31), i);
         std::cout << "success #" << i << std::endl;
     }
 }
-*/
+
+TEST(ELLIPTIC_CURVE, rho_pollard_GPU)
+{
+    int128_t p = 751;
+    int128_t a = -1;
+    int128_t b = 1;
+
+    EllipticCurve<int128_t> ec(a, b, p);
+    EllipticCurve<int128_t>::Point P(0, 1, ec, 31);
+
+    for(int i = 1; i < 31; i++)
+    {
+        ASSERT_EQ(gpu::rho_pollard<int128_t>(i * P, P), i);
+        std::cout << "success #" << i << std::endl;
+    }
+}
 
 TEST(ELLIPTIC_CURVE, sec112r1)
 {

@@ -7,48 +7,50 @@
 #define BITCOIN_uint256_H
 
 #include <assert.h>
-#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <stdint.h>
 #include <string>
 #include <vector>
 
-constexpr char ToLower(char c)
+#define CUDA_CALLABLE __host__ __device__
+
+CUDA_CALLABLE char ToLower(char c)
 {
     return (c >= 'A' && c <= 'Z' ? (c - 'A') + 'a' : c);
 }
 
-constexpr inline bool IsSpace(char c) noexcept 
+inline CUDA_CALLABLE bool IsSpace(char c) noexcept 
 {
     return c == ' ' || c == '\f' || c == '\n' || c == '\r' || c == '\t' || c == '\v';
 }
 
-const signed char p_util_hexdigit[256] =
-{ -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  0,1,2,3,4,5,6,7,8,9,-1,-1,-1,-1,-1,-1,
-  -1,0xa,0xb,0xc,0xd,0xe,0xf,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,0xa,0xb,0xc,0xd,0xe,0xf,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, };
-
-signed char HexDigit(char c)
+CUDA_CALLABLE signed char HexDigit(char c)
 {
+    static const signed char p_util_hexdigit[256] =
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    0,1,2,3,4,5,6,7,8,9,-1,-1,-1,-1,-1,-1,
+    -1,0xa,0xb,0xc,0xd,0xe,0xf,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,0xa,0xb,0xc,0xd,0xe,0xf,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, };
+
     return p_util_hexdigit[(unsigned char)c];
 }
 
+/*
 template<typename T>
-std::string HexStr(const T itbegin, const T itend, bool fSpaces=false)
+CUDA_CALLABLE std::string HexStr(const T itbegin, const T itend, bool fSpaces=false)
 {
     std::string rv;
     static const char hexmap[16] = { '0', '1', '2', '3', '4', '5', '6', '7',
@@ -65,11 +67,7 @@ std::string HexStr(const T itbegin, const T itend, bool fSpaces=false)
 
     return rv;
 }
-
-class uint_error : public std::runtime_error {
-public:
-    explicit uint_error(const std::string& str) : std::runtime_error(str) {}
-};
+*/
 
 /** Template base class for unsigned big integers. */
 template<unsigned int BITS>
@@ -80,33 +78,33 @@ protected:
     uint32_t pn[WIDTH];
 public:
 
-    base_uint()
+    CUDA_CALLABLE base_uint()
     {
         static_assert(BITS/32 > 0 && BITS%32 == 0, "Template parameter BITS must be a positive multiple of 32.");
         memset(pn, 0, sizeof(pn));
     }
 
-    base_uint(const base_uint& b)
+    CUDA_CALLABLE base_uint(const base_uint& b)
     {
         static_assert(BITS/32 > 0 && BITS%32 == 0, "Template parameter BITS must be a positive multiple of 32.");
 
         memcpy(pn, b.pn, sizeof(pn));
     }
 
-    base_uint& operator=(const base_uint& b)
+    CUDA_CALLABLE base_uint& operator=(const base_uint& b)
     {
         memcpy(pn, b.pn, sizeof(pn));
         return *this;
     }
 
-    base_uint& operator=(const std::string& str)
+    CUDA_CALLABLE base_uint& operator=(const char *str)
     {
         static_assert(BITS/32 > 0 && BITS%32 == 0, "Template parameter BITS must be a positive multiple of 32.");
 
         SetHex(str);
     }
 
-    base_uint(int64_t b)
+    CUDA_CALLABLE base_uint(int64_t b)
     {
         static_assert(BITS/32 > 0 && BITS%32 == 0, "Template parameter BITS must be a positive multiple of 32.");
         memset(pn, 0, sizeof(pn));
@@ -125,9 +123,9 @@ public:
         }
     }
 
-    explicit base_uint(const std::string& str);
+    CUDA_CALLABLE explicit base_uint(const std::string& str);
 
-    const base_uint operator~() const
+    CUDA_CALLABLE const base_uint operator~() const
     {
         base_uint ret;
         for (int i = 0; i < WIDTH; i++)
@@ -135,7 +133,7 @@ public:
         return ret;
     }
 
-    const base_uint operator-() const
+    CUDA_CALLABLE const base_uint operator-() const
     {
         base_uint ret;
         for (int i = 0; i < WIDTH; i++)
@@ -144,9 +142,7 @@ public:
         return ret;
     }
 
-    double getdouble() const;
-
-    base_uint& operator=(int64_t b)
+    CUDA_CALLABLE base_uint& operator=(int64_t b)
     {
         memset(pn, 0, sizeof(pn));
         
@@ -165,51 +161,51 @@ public:
         return *this;
     }
 
-    base_uint& operator^=(const base_uint& b)
+    CUDA_CALLABLE base_uint& operator^=(const base_uint& b)
     {
         for (int i = 0; i < WIDTH; i++)
             pn[i] ^= b.pn[i];
         return *this;
     }
 
-    base_uint& operator&=(const base_uint& b)
+    CUDA_CALLABLE base_uint& operator&=(const base_uint& b)
     {
         for (int i = 0; i < WIDTH; i++)
             pn[i] &= b.pn[i];
         return *this;
     }
 
-    base_uint& operator|=(const base_uint& b)
+    CUDA_CALLABLE base_uint& operator|=(const base_uint& b)
     {
         for (int i = 0; i < WIDTH; i++)
             pn[i] |= b.pn[i];
         return *this;
     }
 
-    base_uint& operator^=(uint64_t b)
+    CUDA_CALLABLE base_uint& operator^=(uint64_t b)
     {
         pn[0] ^= (unsigned int)b;
         pn[1] ^= (unsigned int)(b >> 32);
         return *this;
     }
 
-    base_uint& operator|=(uint64_t b)
+    CUDA_CALLABLE base_uint& operator|=(uint64_t b)
     {
         pn[0] |= (unsigned int)b;
         pn[1] |= (unsigned int)(b >> 32);
         return *this;
     }
 
-    base_uint& operator<<=(unsigned int shift);
-    base_uint& operator>>=(unsigned int shift);
+    CUDA_CALLABLE base_uint& operator<<=(unsigned int shift);
+    CUDA_CALLABLE base_uint& operator>>=(unsigned int shift);
 
-    base_uint& operator%=(const base_uint& b)
+    CUDA_CALLABLE base_uint& operator%=(const base_uint& b)
     {
         *this = *this % b;
         return *this;
     }
 
-    base_uint& operator+=(const base_uint& b)
+    CUDA_CALLABLE base_uint& operator+=(const base_uint& b)
     {
         uint64_t carry = 0;
         for (int i = 0; i < WIDTH; i++)
@@ -221,16 +217,16 @@ public:
         return *this;
     }
 
-    base_uint& operator-=(const base_uint& b)
+    CUDA_CALLABLE base_uint& operator-=(const base_uint& b)
     {
         *this += -b;
         return *this;
     }
 
-    base_uint& operator*=(const base_uint& b);
-    base_uint& operator/=(const base_uint& b);
+    CUDA_CALLABLE base_uint& operator*=(const base_uint& b);
+    CUDA_CALLABLE base_uint& operator/=(const base_uint& b);
 
-    base_uint& operator++()
+    CUDA_CALLABLE base_uint& operator++()
     {
         // prefix operator
         int i = 0;
@@ -239,7 +235,7 @@ public:
         return *this;
     }
 
-    const base_uint operator++(int)
+    CUDA_CALLABLE const base_uint operator++(int)
     {
         // postfix operator
         const base_uint ret = *this;
@@ -247,16 +243,16 @@ public:
         return ret;
     }
 
-    base_uint& operator--()
+    CUDA_CALLABLE base_uint& operator--()
     {
         // prefix operator
         int i = 0;
-        while (i < WIDTH && --pn[i] == std::numeric_limits<uint32_t>::max())
+        while (i < WIDTH && --pn[i] == uint32_t(-1))
             i++;
         return *this;
     }
 
-    const base_uint operator--(int)
+    CUDA_CALLABLE const base_uint operator--(int)
     {
         // postfix operator
         const base_uint ret = *this;
@@ -264,53 +260,39 @@ public:
         return ret;
     }
 
-    int CompareTo(const base_uint& b) const;
+    CUDA_CALLABLE int CompareTo(const base_uint& b) const;
 
-    friend inline const base_uint operator%(const base_uint& a, const base_uint& b) { return a - ( a / b ) * b; }
-    friend inline const base_uint operator+(const base_uint& a, const base_uint& b) { return base_uint(a) += b; }
-    friend inline const base_uint operator-(const base_uint& a, const base_uint& b) { return base_uint(a) -= b; }
-    friend inline const base_uint operator*(const base_uint& a, const base_uint& b) { return base_uint(a) *= b; }
-    friend inline const base_uint operator/(const base_uint& a, const base_uint& b) { return base_uint(a) /= b; }
-    friend inline const base_uint operator|(const base_uint& a, const base_uint& b) { return base_uint(a) |= b; }
-    friend inline const base_uint operator&(const base_uint& a, const base_uint& b) { return base_uint(a) &= b; }
-    friend inline const base_uint operator^(const base_uint& a, const base_uint& b) { return base_uint(a) ^= b; }
-    friend inline const base_uint operator>>(const base_uint& a, int shift) { return base_uint(a) >>= shift; }
-    friend inline const base_uint operator<<(const base_uint& a, int shift) { return base_uint(a) <<= shift; }
-    friend inline bool operator==(const base_uint& a, const base_uint& b) { return memcmp(a.pn, b.pn, sizeof(a.pn)) == 0; }
-    friend inline bool operator!=(const base_uint& a, const base_uint& b) { return memcmp(a.pn, b.pn, sizeof(a.pn)) != 0; }
-    friend inline bool operator>(const base_uint& a, const base_uint& b) { return a.CompareTo(b) > 0; }
-    friend inline bool operator<(const base_uint& a, const base_uint& b) { return a.CompareTo(b) < 0; }
-    friend inline bool operator>=(const base_uint& a, const base_uint& b) { return a.CompareTo(b) >= 0; }
-    friend inline bool operator<=(const base_uint& a, const base_uint& b) { return a.CompareTo(b) <= 0; }
-    friend inline std::ostream& operator<<(std::ostream& out, const base_uint &a) { return out << a.GetHex(); }
+    CUDA_CALLABLE friend inline const base_uint operator%(const base_uint& a, const base_uint& b) { return a - ( a / b ) * b; }
+    CUDA_CALLABLE friend inline const base_uint operator+(const base_uint& a, const base_uint& b) { return base_uint(a) += b; }
+    CUDA_CALLABLE friend inline const base_uint operator-(const base_uint& a, const base_uint& b) { return base_uint(a) -= b; }
+    CUDA_CALLABLE friend inline const base_uint operator*(const base_uint& a, const base_uint& b) { return base_uint(a) *= b; }
+    CUDA_CALLABLE friend inline const base_uint operator/(const base_uint& a, const base_uint& b) { return base_uint(a) /= b; }
+    CUDA_CALLABLE friend inline const base_uint operator|(const base_uint& a, const base_uint& b) { return base_uint(a) |= b; }
+    CUDA_CALLABLE friend inline const base_uint operator&(const base_uint& a, const base_uint& b) { return base_uint(a) &= b; }
+    CUDA_CALLABLE friend inline uint32_t operator&(const base_uint& a, const uint32_t b) { return a.pn[0] & b; }
+    CUDA_CALLABLE friend inline const base_uint operator^(const base_uint& a, const base_uint& b) { return base_uint(a) ^= b; }
+    CUDA_CALLABLE friend inline const base_uint operator>>(const base_uint& a, int shift) { return base_uint(a) >>= shift; }
+    CUDA_CALLABLE friend inline const base_uint operator<<(const base_uint& a, int shift) { return base_uint(a) <<= shift; }
+    CUDA_CALLABLE friend inline bool operator==(const base_uint& a, const base_uint& b) { return memcmp(a.pn, b.pn, sizeof(a.pn)) == 0; }
+    CUDA_CALLABLE friend inline bool operator!=(const base_uint& a, const base_uint& b) { return memcmp(a.pn, b.pn, sizeof(a.pn)) != 0; }
+    CUDA_CALLABLE friend inline bool operator>(const base_uint& a, const base_uint& b) { return a.CompareTo(b) > 0; }
+    CUDA_CALLABLE friend inline bool operator<(const base_uint& a, const base_uint& b) { return a.CompareTo(b) < 0; }
+    CUDA_CALLABLE friend inline bool operator>=(const base_uint& a, const base_uint& b) { return a.CompareTo(b) >= 0; }
+    CUDA_CALLABLE friend inline bool operator<=(const base_uint& a, const base_uint& b) { return a.CompareTo(b) <= 0; }
+    // CUDA_CALLABLE friend inline std::ostream& operator<<(std::ostream& out, const base_uint &a) { return out << a.GetHex(); }
 
-    std::string GetHex() const;
-    void SetHex(const char* psz);
-    void SetHex(const std::string& str);
+    // CUDA_CALLABLE std::string GetHex() const;
+    CUDA_CALLABLE void SetHex(const char* psz);
 
     /**
      * Returns the position of the highest bit set plus one, or zero if the
      * value is zero.
      */
-    unsigned int bits() const;
-
-    uint64_t GetLow64() const
-    {
-        static_assert(WIDTH >= 2, "Assertion WIDTH >= 2 failed (WIDTH = BITS / 32). BITS is a template parameter.");
-        return pn[0] | (uint64_t)pn[1] << 32;
-    }
+    CUDA_CALLABLE unsigned int bits() const;
 };
 
 template <unsigned int BITS>
-base_uint<BITS>::base_uint(const std::string& str)
-{
-    static_assert(BITS/32 > 0 && BITS%32 == 0, "Template parameter BITS must be a positive multiple of 32.");
-
-    SetHex(str);
-}
-
-template <unsigned int BITS>
-base_uint<BITS>& base_uint<BITS>::operator<<=(unsigned int shift)
+CUDA_CALLABLE base_uint<BITS>& base_uint<BITS>::operator<<=(unsigned int shift)
 {
     base_uint<BITS> a(*this);
     for (int i = 0; i < WIDTH; i++)
@@ -328,7 +310,7 @@ base_uint<BITS>& base_uint<BITS>::operator<<=(unsigned int shift)
 }
 
 template <unsigned int BITS>
-base_uint<BITS>& base_uint<BITS>::operator>>=(unsigned int shift)
+CUDA_CALLABLE base_uint<BITS>& base_uint<BITS>::operator>>=(unsigned int shift)
 {
     base_uint<BITS> a(*this);
     for (int i = 0; i < WIDTH; i++)
@@ -346,7 +328,7 @@ base_uint<BITS>& base_uint<BITS>::operator>>=(unsigned int shift)
 }
 
 template <unsigned int BITS>
-base_uint<BITS>& base_uint<BITS>::operator*=(const base_uint& b)
+CUDA_CALLABLE base_uint<BITS>& base_uint<BITS>::operator*=(const base_uint& b)
 {
     base_uint<BITS> a;
     for (int j = 0; j < WIDTH; j++)
@@ -364,16 +346,15 @@ base_uint<BITS>& base_uint<BITS>::operator*=(const base_uint& b)
 }
 
 template <unsigned int BITS>
-base_uint<BITS>& base_uint<BITS>::operator/=(const base_uint& b)
+CUDA_CALLABLE base_uint<BITS>& base_uint<BITS>::operator/=(const base_uint& b)
 {
     int sign = b * (*this) > 0 ? 1 : -1;
     base_uint<BITS> div = b < 0 ? -b : b;     // make a copy, so we can shift.
     base_uint<BITS> num = *this < 0 ? -(*this) : *this; // make a copy, so we can subtract.
-    *this = 0;                   // the quotient.
+    memset(pn, 0, sizeof(pn));
     int num_bits = num.bits();
     int div_bits = div.bits();
-    if (div_bits == 0)
-        throw uint_error("Division by zero");
+    assert(div_bits != 0);
     if (div_bits > num_bits) // the result is certainly 0.
         return *this;
     int shift = num_bits - div_bits;
@@ -395,7 +376,7 @@ base_uint<BITS>& base_uint<BITS>::operator/=(const base_uint& b)
 }
 
 template <unsigned int BITS>
-int base_uint<BITS>::CompareTo(const base_uint<BITS>& b) const
+CUDA_CALLABLE int base_uint<BITS>::CompareTo(const base_uint<BITS>& b) const
 {
     // lhs negative, rhs positive
     bool lhsSign = this->pn[WIDTH-1] >> 31;
@@ -432,27 +413,16 @@ int base_uint<BITS>::CompareTo(const base_uint<BITS>& b) const
     return 0;
 }
 
+/*
 template <unsigned int BITS>
-double base_uint<BITS>::getdouble() const
-{
-    double ret = 0.0;
-    double fact = 1.0;
-    for (int i = 0; i < WIDTH; i++)
-    {
-        ret += fact * pn[i];
-        fact *= 4294967296.0;
-    }
-    return ret;
-}
-
-template <unsigned int BITS>
-std::string base_uint<BITS>::GetHex() const
+CUDA_CALLABLE std::string base_uint<BITS>::GetHex() const
 {
     return HexStr(std::reverse_iterator<const uint8_t*>((const uint8_t*)pn + sizeof(pn)), std::reverse_iterator<const uint8_t*>((const uint8_t*)pn), true);
 }
+*/
 
 template <unsigned int BITS>
-void base_uint<BITS>::SetHex(const char* psz)
+CUDA_CALLABLE void base_uint<BITS>::SetHex(const char* psz)
 {
     memset(pn, 0, sizeof(pn));
 
@@ -483,13 +453,7 @@ void base_uint<BITS>::SetHex(const char* psz)
 }
 
 template <unsigned int BITS>
-void base_uint<BITS>::SetHex(const std::string& str)
-{
-    SetHex(str.c_str());
-}
-
-template <unsigned int BITS>
-unsigned int base_uint<BITS>::bits() const
+CUDA_CALLABLE unsigned int base_uint<BITS>::bits() const
 {
     for (int pos = WIDTH - 1; pos >= 0; pos--)
     {
@@ -504,5 +468,7 @@ unsigned int base_uint<BITS>::bits() const
     }
     return 0;
 }
+
+typedef base_uint<128> int128_t;
 
 #endif // BITCOIN_uint256_H
