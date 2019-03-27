@@ -8,11 +8,10 @@
 
 #include <assert.h>
 #include <limits>
-#include <stdexcept>
 #include <stdint.h>
 #include <string>
 #include <vector>
-#include <algorithm>
+#include <cuda_runtime.h>
 
 #define CUDA_CALLABLE __host__ __device__
 
@@ -121,21 +120,13 @@ public:
         SetHex(str.c_str());
     }
 
-    __host__ uint32_t* get() const
-    {
-        return &pn;
-    }
-
-    __host__ void set( uint32_t *src )
-    {
-        memcpy(pn, src, sizeof(pn));
-    }
-
     CUDA_CALLABLE const int128_t operator~() const
     {
         int128_t ret;
-        for (int i = 0; i < WIDTH; i++)
-            ret.pn[i] = ~pn[i];
+        ret.pn[0] = ~pn[0];
+        ret.pn[1] = ~pn[1];
+        ret.pn[2] = ~pn[2];
+        ret.pn[3] = ~pn[3];
         return ret;
     }
 
@@ -167,8 +158,10 @@ public:
 
     CUDA_CALLABLE int128_t& operator^=(const int128_t& b)
     {
-        for (int i = 0; i < WIDTH; i++)
-            pn[i] ^= b.pn[i];
+        pn[0] ^= b.pn[0];
+        pn[1] ^= b.pn[1];
+        pn[2] ^= b.pn[2];
+        pn[3] ^= b.pn[3];
         return *this;
     }
 
@@ -216,22 +209,18 @@ public:
 
     CUDA_CALLABLE int128_t& operator+=(const int128_t& b)
     {
-        uint64_t carry = 0;
         uint64_t n = 0;
 
         n = uint64_t(pn[0]) + b.pn[0];
         pn[0] = n & 0xffffffff;
-        carry = n >> 32;
 
-        n = carry + pn[1] + b.pn[1];
+        n = (n >> 32) + pn[1] + b.pn[1];
         pn[1] = n & 0xffffffff;
-        carry = n >> 32;
 
-        n = carry + pn[2] + b.pn[2];
+        n = (n >> 32) + pn[2] + b.pn[2];
         pn[2] = n & 0xffffffff;
-        carry = n >> 32;
         
-        n = carry + pn[3] + b.pn[3];
+        n = (n >> 32) + pn[3] + b.pn[3];
         pn[3] = n & 0xffffffff;
     
         return *this;
@@ -251,7 +240,7 @@ public:
         // prefix operator
         int i = 0;
         while (i < WIDTH && ++pn[i] == 0)
-            i++;
+            ++i;
         return *this;
     }
 
@@ -267,8 +256,8 @@ public:
     {
         // prefix operator
         int i = 0;
-        while (i < WIDTH && --pn[i] == uint32_t(-1))
-            i++;
+        while (i < WIDTH && --pn[i] == 0xffffffff)
+            ++i;
         return *this;
     }
 
@@ -296,7 +285,7 @@ public:
 
     CUDA_CALLABLE friend inline bool operator==(const int128_t& a, const int128_t& b)
     {
-        for(unsigned i = 0; i < WIDTH; i++)
+        for(unsigned i = 0; i < 3; ++i)
         {
             if(a.pn[i] != b.pn[i])
                 return false;
@@ -318,7 +307,21 @@ public:
      * Returns the position of the highest bit set plus one, or zero if the
      * value is zero.
      */
-    CUDA_CALLABLE unsigned int bits() const;
+    CUDA_CALLABLE unsigned int bits() const
+    {
+        for (int pos = 3; pos >= 0; --pos)
+        {
+            if (pn[pos])
+            {
+                unsigned p = 0;
+                uint32_t y = pn[pos];
+                while (0 != y)
+                    ++p, y >>= 1;
+                return (pos << 5) + p;
+            }
+        }
+        return 0;
+    }
 
     __host__ const int128_t& random( const int128_t &mod );
 };
@@ -329,7 +332,7 @@ CUDA_CALLABLE int128_t& int128_t::operator<<=(unsigned int shift)
     memset(pn, 0, sizeof(pn));
     int k = shift / 32;
     shift = shift % 32;
-    for (int i = 0; i < WIDTH; i++)
+    for (int i = 0; i < 4; ++i)
     {
         if (i + k + 1 < WIDTH && shift != 0)
             pn[i + k + 1] |= (a.pn[i] >> (32 - shift));
@@ -345,29 +348,62 @@ CUDA_CALLABLE int128_t& int128_t::operator>>=(unsigned int shift)
     memset(pn, 0, sizeof(pn));
     int k = shift / 32;
     shift = shift % 32;
-    for (int i = 0; i < WIDTH; i++)
+
+    for(unsigned i = 0; i + k < 4; ++i)
+        pn[i] = a.pn[i + k];
+
+    uint32_t mask_least = (1 << shift) - 1;
+    uint32_t carry1 = 0, carry2 = 0;
+    for(int i = 3 - k; i >= 0; --i)
     {
-        if (i - k - 1 >= 0 && shift != 0)
-            pn[i - k - 1] |= (a.pn[i] << (32 - shift));
-        if (i - k >= 0)
-            pn[i - k] |= (a.pn[i] >> shift);
+        carry1 = pn[i] & mask_least;
+        pn[i] >>= shift;
+        pn[i] |= (carry2 << (32 - shift));
+        carry2 = carry1;
     }
+
     return *this;
 }
 
 int128_t& int128_t::operator*=(const int128_t& b)
 {
     int128_t a;
-    for (int j = 0; j < WIDTH; j++)
-    {
-        uint64_t carry = 0;
-        for (int i = 0; i + j < WIDTH; i++)
-        {
-            uint64_t n = carry + a.pn[i + j] + (uint64_t)pn[j] * b.pn[i];
-            a.pn[i + j] = n & 0xffffffff;
-            carry = n >> 32;
-        }
-    }
+
+    uint64_t n = 0;
+    
+    n = a.pn[0] + (uint64_t)pn[0] * b.pn[0];
+    a.pn[0] = n & 0xffffffff;
+
+    n = (n >> 32) + a.pn[1] + (uint64_t)pn[0] * b.pn[1];
+    a.pn[1] = n & 0xffffffff;
+
+    n = (n >> 32) + a.pn[2] + (uint64_t)pn[0] * b.pn[2];
+    a.pn[2] = n & 0xffffffff;
+
+    n = (n >> 32) + a.pn[3] + (uint64_t)pn[0] * b.pn[3];
+    a.pn[3] = n & 0xffffffff;
+
+
+    n = a.pn[1] + (uint64_t)pn[1] * b.pn[0];
+    a.pn[1] = n & 0xffffffff;
+
+    n = (n >> 32) + a.pn[2] + (uint64_t)pn[1] * b.pn[1];
+    a.pn[2] = n & 0xffffffff;
+
+    n = (n >> 32) + a.pn[3] + (uint64_t)pn[1] * b.pn[2];
+    a.pn[3] = n & 0xffffffff;
+
+
+    n = a.pn[2] + (uint64_t)pn[2] * b.pn[0];
+    a.pn[2] = n & 0xffffffff;
+
+    n = (n >> 32) + a.pn[3] + (uint64_t)pn[2] * b.pn[1];
+    a.pn[3] = n & 0xffffffff;
+
+
+    n = a.pn[3] + (uint64_t)pn[3] * b.pn[0];
+    a.pn[3] = n & 0xffffffff;
+
     *this = a;
     return *this;
 }
@@ -377,7 +413,7 @@ CUDA_CALLABLE int128_t& int128_t::operator/=(const int128_t& b)
     int sign = b > 0 && (*this) > 0 ? 1 : -1;
     int128_t div = b > 0 ? b : -b;     // make a copy, so we can shift.
     int128_t num = *this > 0 ? *this : -(*this); // make a copy, so we can subtract.
-    *this = 0;                   // the quotient.
+    memset(pn, 0, sizeof(pn));
     int num_bits = num.bits();
     int div_bits = div.bits();
     assert(div_bits != 0 && "Division by zero");
@@ -385,15 +421,17 @@ CUDA_CALLABLE int128_t& int128_t::operator/=(const int128_t& b)
         return *this;
     int shift = num_bits - div_bits;
     div <<= shift; // shift so that div and num align.
-    while (shift >= 0) {
-        if (num >= div) {
+    while (shift >= 0)
+    {
+        if (num >= div)
+        {
             num -= div;
             pn[shift / 32] |= (1 << (shift & 31)); // set a bit of the result.
         }
         div >>= 1; // shift back.
-        shift--;
+        --shift;
     }
-    // num now contains the remainder of the division.
+
     if( sign < 0 )
         (*this) = -(*this);
     return (*this);
@@ -401,8 +439,8 @@ CUDA_CALLABLE int128_t& int128_t::operator/=(const int128_t& b)
 
 CUDA_CALLABLE int int128_t::CompareTo(const int128_t& b) const
 {
-    bool lhsSign = this->pn[WIDTH-1] >> 31;
-    bool rhsSign = b.pn[WIDTH-1] >> 31;
+    bool lhsSign = pn[3] >> 31;
+    bool rhsSign = b.pn[3] >> 31;
 
     if( lhsSign && !rhsSign )
     {
@@ -414,9 +452,9 @@ CUDA_CALLABLE int int128_t::CompareTo(const int128_t& b) const
     }
     else if( lhsSign && rhsSign )
     {
-        int i = WIDTH - 1;
+        int i = 3;
         while(pn[i] == b.pn[i] && i > 0)
-            i--;
+            --i;
         if(pn[i] > b.pn[i])
             return -1;
         else if(pn[i] == b.pn[i])
@@ -426,9 +464,9 @@ CUDA_CALLABLE int int128_t::CompareTo(const int128_t& b) const
     }
     else
     {
-        int i = WIDTH - 1;
+        int i = 3;
         while(pn[i] == b.pn[i] && i > 0)
-            i--;
+            --i;
         if(pn[i] > b.pn[i])
             return 1;
         else if(pn[i] == b.pn[i])
@@ -471,22 +509,6 @@ void int128_t::SetHex(const char* psz)
             p1++;
         }
     }
-}
-
-unsigned int int128_t::bits() const
-{
-    for (int pos = WIDTH - 1; pos >= 0; pos--)
-    {
-        if (pn[pos])
-        {
-            unsigned p = 0;
-            uint32_t y = pn[pos];
-            while (0 != y)
-                p++, y >>= 1;
-            return (pos << 5) + p;
-        }
-    }
-    return 0;
 }
 
 const int128_t& int128_t::random( const int128_t &mod )

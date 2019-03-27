@@ -2,6 +2,7 @@
 #include <iostream>
 #include <int128_t.h>
 #include <pollard.h>
+//#include <boost/multiprecision/cpp_int.hpp>
 
 TEST(INT256, Simple)
 {
@@ -60,10 +61,10 @@ TEST(ELLIPTIC_CURVE, teske)
     int128_t b = 7;
 
     EllipticCurve<int128_t> ec(a, b, p);
-    Point<int128_t> P(47, 19, ec);
+    Point<int128_t> P(47, 19);
     int128_t order = 907;
 
-    Point<int128_t> O(0, 0, ec);
+    Point<int128_t> O(0, 0);
     assert(ec.mul(order, P) == O);
 
     Point<int128_t> Q = ec.mul(3, P);
@@ -96,7 +97,7 @@ TEST(ELLIPTIC_CURVE, rho_pollard_CPU)
     int128_t b = 7;
 
     EllipticCurve<int128_t> ec(a, b, p);
-    Point<int128_t> P(47, 19, ec);
+    Point<int128_t> P(47, 19);
     int128_t order = 907;
 
     for(int i = 1; i < order; i++)
@@ -106,14 +107,14 @@ TEST(ELLIPTIC_CURVE, rho_pollard_CPU)
     }
 }
 
-TEST(ELLIPTIC_CURVE, rho_pollard_GPU_LONG)
+TEST(ELLIPTIC_CURVE, rho_pollard_GPU)
 {
     int128_t p = 967;
     int128_t a = 0;
     int128_t b = 7;
 
     EllipticCurve<int128_t> ec(a, b, p);
-    Point<int128_t> P(47, 19, ec);
+    Point<int128_t> P(47, 19);
     int128_t order = 907;
 
     for(int i = 1; i < order; i++)
@@ -126,18 +127,19 @@ TEST(ELLIPTIC_CURVE, rho_pollard_GPU_LONG)
 /*
 TEST(ELLIPTIC_CURVE, sec112r1)
 {
-    int128_t p("0xdb7c2abf62e35e668076bead208b");
+    using namespace boost::multiprecision;
+    checked_int128_t p("0xdb7c2abf62e35e668076bead208b");
 
-    int128_t a("0xdb7c2abf62e35e668076bead2088");
-    int128_t b("0x659ef8ba043916eede8911702b22");
+    checked_int128_t a("0xdb7c2abf62e35e668076bead2088");
+    checked_int128_t b("0x659ef8ba043916eede8911702b22");
 
-    EllipticCurve<int128_t> ec(a, b, p);
-    EllipticCurve<>::Point<int128_t> g(int128_t("0x9487239995a5ee76b55f9c2f098"), int128_t("0xa89ce5af8724c0a23e0e0ff77500"), ec);
-    int128_t g_order("0xDB7C2ABF62E35E7628DFAC6561C5");
-    EllipticCurve<int128_t>::Point h(int128_t("0x45cf81634b4ca4c6aac505843b94"), int128_t("0xbda8eea7a5004255fa03c48d4ae8"), ec);
+    EllipticCurve<checked_int128_t> ec(a, b, p);
+    Point<checked_int128_t> g(checked_int128_t("0x9487239995a5ee76b55f9c2f098"), checked_int128_t("0xa89ce5af8724c0a23e0e0ff77500"), ec);
+    checked_int128_t g_order("0xDB7C2ABF62E35E7628DFAC6561C5");
+    Point<checked_int128_t> h(checked_int128_t("0x45cf81634b4ca4c6aac505843b94"), checked_int128_t("0xbda8eea7a5004255fa03c48d4ae8"), ec);
 
-    int128_t m("0xf6893de509504e9be7e85b7ae3b");
-    ASSERT_EQ(cpu::rho_pollard<int128_t>(h, g, g_order), m);
+    checked_int128_t m("0xf6893de509504e9be7e85b7ae3b");
+    ASSERT_EQ(cpu::rho_pollard<checked_int128_t>(h, g, g_order, ec), m);
 }
 */
 

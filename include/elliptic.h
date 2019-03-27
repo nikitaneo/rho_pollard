@@ -18,26 +18,22 @@ namespace detail
 template<typename T>
 CUDA_CALLABLE T mulmod(const T &A, const T &B, const T &mod) 
 { 
-    T res = 0; // Initialize result 
-    T a = A % mod;
-    T b = B % mod; 
-    while (b > 0) 
+    T res = 0;
+    T a = A;
+    T b = B; 
+    while( b != 0 ) 
     { 
-        if ((b & 1) == 1) 
-            res = (res + a) % mod; 
+        if( (b & 1) == 1 ) 
+            res += a; if(res > mod) res -= mod; 
   
-        // Multiply 'a' with 2 
-        a = (a << 1) % mod; 
-  
-        // Divide b by 2 
+        a <<= 1; if(a > mod) a -= mod; 
         b >>= 1; 
     } 
   
     // Return result 
-    return res % mod; 
+    return res; 
 }
 
-//From Knuth; Extended GCD gives g = a*u + b*v
 template<typename T>
 CUDA_CALLABLE T EGCD(const T &a, const T &b, T &u, T &v)
 {
@@ -47,7 +43,7 @@ CUDA_CALLABLE T EGCD(const T &a, const T &b, T &u, T &v)
     T u1 = 0;
     T v1 = 1;
     T g1 = b;
-    while (g1 != 0)
+    while( g1 != 0 )
     {
         T q = g / g1; // Integer divide
         T t1 = u - q * u1;
@@ -67,8 +63,7 @@ CUDA_CALLABLE T EGCD(const T &a, const T &b, T &u, T &v)
 template<typename T>
 CUDA_CALLABLE T InvMod(const T &x, const T &n) // Solve linear congruence equation x * z == 1 (mod n) for z
 {
-    //n = Abs(n);
-    T X = x % n;
+    T X = x;
     T u, v, g, z;
     g = EGCD(X, n, u, v);
     if(g != 1)
@@ -97,7 +92,11 @@ class FiniteFieldElement
 
     CUDA_CALLABLE void assign(const T &i)
     {
-        i_ = i % P;
+        if(i >= P)
+            i_ = i % P;
+        else
+            i_ = i;
+
         if (i < 0)
         {
             i_ += P;
@@ -125,6 +124,8 @@ class FiniteFieldElement
     CUDA_CALLABLE T i() const { return i_; }
 
     CUDA_CALLABLE T p() const { return P; }
+
+    CUDA_CALLABLE operator T() { return i_; }
 
     // negate
     CUDA_CALLABLE FiniteFieldElement operator-() const
@@ -192,7 +193,7 @@ class FiniteFieldElement
 
     CUDA_CALLABLE friend FiniteFieldElement<T> operator*(const T &n, const FiniteFieldElement<T> &rhs)
     {
-        return FiniteFieldElement<T>(n * rhs.i_, rhs.P);
+        return FiniteFieldElement<T>(detail::mulmod(n, rhs.i_, rhs.P), rhs.P);
     }
 
     CUDA_CALLABLE friend FiniteFieldElement<T> operator*(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
@@ -221,7 +222,6 @@ class EllipticCurve
     // this curve is defined over the finite field (Galois field) Fp, this is the
     // typedef of elements in it
     typedef FiniteFieldElement<T> ffe_t;
-    typedef EllipticCurve<T> this_t;
 
     // Initialize EC as y^2 = x^3 + ax + b
     CUDA_CALLABLE EllipticCurve(const T &a, const T &b, const T &p)
@@ -233,73 +233,56 @@ class EllipticCurve
     // multiplies acc by m as a series of "2*acc's"
     CUDA_CALLABLE void addDouble(const T &m, Point<T> &p) const
     {
-        if (m > 0)
+        Point<T> r = p;
+        for (T n = 0; n < m; ++n)
         {
-            Point<T> r = p;
-            for (T n = 0; n < m; ++n)
-            {
-                r = add(r, r); // doubling step
-            }
-            p = r;
+            r = add(r, r); // doubling step
         }
+        p = r;
     }
 
-    // adding two points on the curve
-    CUDA_CALLABLE void add_(const ffe_t &x1, const ffe_t &y1, const ffe_t &x2, const ffe_t &y2, ffe_t &xR, ffe_t &yR) const
+    CUDA_CALLABLE Point<T> add(const Point<T> &lhs, const Point<T> &rhs) const
     {
-        // special cases involving the additive identity
-        if (x1 == 0 && y1 == 0)
+        if(lhs.x == 0 && lhs.y == 0)
         {
-            xR = x2;
-            yR = y2;
-            return;
+            return rhs;
         }
-
-        if (x2 == 0 && y2 == 0)
+        else if(rhs.x == 0 && rhs.y == 0)
         {
-            xR = x1;
-            yR = y1;
-            return;
+            return lhs;
         }
-
-        if(y1 == -y2 && x1 == x2)
+        else if(lhs.y == (-rhs.y + P) && lhs.x == rhs.x)
         {
-            xR = yR = ffe_t(0, P);
-            return;
+            return Point<T>(0, 0);
         }
-
-        ffe_t s(0, P);
-        if (x1 == x2 && y1 == y2 && y1 != 0 ) // P == Q, doubling
+        
+        T xR, yR;
+        ffe_t x1(lhs.x, P), y1(lhs.y, P), x2(rhs.x, P), y2(rhs.y, P), s(0, P); 
+        if (lhs.x == rhs.x && lhs.y == rhs.y && lhs.y != 0 ) // P == Q, doubling
         {
-            s = (3 * detail::mulmod(x1.i(), x1.i(), P) + ffe_t(a, P)) / (2 * y1);
-            xR = s * s - 2 * x1;
-            yR = -y1 + s * (x1 - xR);
+            s = (3 * x1 * x1 + a) / ffe_t(y1.i() << 1, P);
+            xR = s * s - ffe_t(x1.i() << 1, P);
         }
         else
         {
             s = (y1 - y2) / (x1 - x2);
             xR = s * s - x1 - x2;
-            yR = -y1 + s * (x1 - xR);
         }
-    }
+        yR = -y1 + s * (x1 - ffe_t(xR, P));
 
-    CUDA_CALLABLE Point<T> add(const Point<T> &lhs, const Point<T> &rhs) const
-    {
-        ffe_t xR(0, P), yR(0, P), x1(lhs.x_, P), y1(lhs.y_, P), x2(rhs.x_, P), y2(rhs.y_, P); 
-        add_(x1, y1, x2, y2, xR, yR);
-        return Point<T>(xR.i(), yR.i());
+        return Point<T>(xR, yR);
     }
 
     CUDA_CALLABLE Point<T> mul(const T &k, const Point<T> &rhs) const
     {
         Point<T> acc = rhs;
-        Point<T> res(0, 0, P);
+        Point<T> res(0, 0);
         T i = 0, j = 0;
         T b = k;
 
-        while (b != 0)
+        while(b != 0)
         {
-            if ((b & 1) != 0)
+            if((b & 1) != 0)
             {
                 // bit is set; acc = 2^(i-j)*acc
                 addDouble(i - j, acc);
@@ -314,8 +297,8 @@ class EllipticCurve
 
     CUDA_CALLABLE bool check( const Point<T> &point ) const
     {
-        ffe_t y(point.y_, P), x(point.x_, P);
-        if((point.x_ == 0 && point.y_ == 0) || (y * y == x * x * x + a * x + b))
+        ffe_t y(point.y, P), x(point.x, P);
+        if((point.x == 0 && point.y == 0) || (y * y == x * x * x + a * x + b))
             return true;
         return false;
     }
@@ -325,66 +308,44 @@ class EllipticCurve
     T P;
 };
 
-/*
-    A point, or group element, on the EC, consisting of two elements of the field FP
-    Points can only created by the EC instance itself as they have to be 
-    elements of the group generated by the EC
-*/
 template<typename T>
 class Point
 {
     friend class EllipticCurve<T>;
-    T x_;
-    T y_;
-
-    CUDA_CALLABLE Point(const T &x, const T &y)
-        : x_(x), y_(y)
-    {
-    }
+    T x{ 0 };
+    T y{ 0 };
 
 public:
 
-    CUDA_CALLABLE Point() : x_(0), y_(0)
+    CUDA_CALLABLE Point()
     {
     }
 
-    CUDA_CALLABLE Point(const T &x, const T &y, const EllipticCurve<T> &ec)
-        : x_(x), y_(y)
+    CUDA_CALLABLE Point(const T &x, const T &y)
+        : x(x), y(y)
     {
-        // do nothing
-    }
-
-    CUDA_CALLABLE Point(const T &x, const T &y, const T &p)
-        : x_(x), y_(y)
-    {
-        // do nothing
     }
 
     CUDA_CALLABLE Point(const Point &rhs)
     {
-        x_ = rhs.x_;
-        y_ = rhs.y_;
+        x = rhs.x;
+        y = rhs.y;
     }
 
     CUDA_CALLABLE Point &operator=(const Point &rhs)
     {
-        x_ = rhs.x_;
-        y_ = rhs.y_;
+        x = rhs.x;
+        y = rhs.y;
         return *this;
     }
 
-    CUDA_CALLABLE T x() const { return x_; }
+    CUDA_CALLABLE T getX() const { return x; }
 
-    CUDA_CALLABLE T y() const { return y_; }
-
-    CUDA_CALLABLE Point operator-()
-    {
-        return Point(x_, -y_);
-    }
+    CUDA_CALLABLE T getY() const { return y; }
 
     CUDA_CALLABLE friend bool operator==(const Point &lhs, const Point &rhs)
     {
-        return (lhs.x_ == rhs.x_) && (lhs.y_ == rhs.y_);
+        return (lhs.x == rhs.x) && (lhs.y == rhs.y);
     }
 
     CUDA_CALLABLE friend bool operator!=(const Point &lhs, const Point &rhs)
@@ -394,7 +355,7 @@ public:
 
     __host__ friend std::ostream &operator<<(std::ostream &os, const Point &p)
     {
-        return (os << "(" << p.x_ << ", " << p.y_ << ")");
+        return (os << "(" << p.x << ", " << p.y << ")");
     }
 };
 

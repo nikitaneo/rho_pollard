@@ -17,7 +17,7 @@ inline void iteration(  Point<T> &r,
                         const std::vector<Point<T>> &R,
                         const EllipticCurve<T> &ec )
 {
-    unsigned index = r.x() & 0xF;
+    unsigned index = r.getX() & 0xF;
     r = ec.add(r, R[index]);
     c += a[index];
     d += b[index];
@@ -32,15 +32,15 @@ T rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellip
     std::vector<T> b(POLLARD_SET_COUNT);
     std::vector<Point<T>> R(POLLARD_SET_COUNT, P);
     
-    for(unsigned i = 0; i < POLLARD_SET_COUNT; i++)
-    {
-        a[i].random(order);
-        b[i].random(order) ;
-        R[i] = ec.add(ec.mul(a[i], P), ec.mul(b[i], Q));
-    }
-
     while( true )
     {
+        for(unsigned i = 0; i < POLLARD_SET_COUNT; i++)
+        {
+            a[i].random(order);
+            b[i].random(order) ;
+            R[i] = ec.add(ec.mul(a[i], P), ec.mul(b[i], Q));
+        }
+
         c1 = c2.random(order);
         d1 = d2.random(order);
         Point<T> X1 = ec.add(ec.mul(c1, P), ec.mul(d1, Q));
@@ -61,12 +61,18 @@ T rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellip
         d2 = d2 % order;
 
         if(ec.add(ec.mul(c2, P), ec.mul(d2, Q)) != X2 || ec.add(ec.mul(c1, P), ec.mul(d1, Q)) != X1 || !ec.check(X1))
+        {
+            std::cerr << "[INFO] c1 * P + d1 * Q != X1 or c2 * P + d2 * Q != X2 or X1 is not on curve." << std::endl;
             continue;
+        }
 
         T c = c2 - c1; if(c < 0) c += order;
         T d = d1 - d2; if(d < 0) d += order;
         if(d == 0)
+        {
+            std::cerr << "[INFO] d1 == d2" << std::endl;
             continue;
+        }
 
         T d_inv = detail::InvMod(d, order); if(d_inv < 0) d_inv += order;
 
@@ -87,7 +93,7 @@ __device__ inline void iteration(   Point<T> &r,
                                     const Point<T> *R,
                                     const EllipticCurve<T> &ec )
 {
-    unsigned index = r.x() & 0xF;
+    unsigned index = r.getX() & 0xF;
     r = ec.add(r, R[index]);
     c += a[index];
     d += b[index];
@@ -102,10 +108,11 @@ __global__ void rho_pollard_kernel( const T *a,
                                     T *c1, T *c2, T *d1, T *d2,
                                     const EllipticCurve<T> ec )
 {
+    unsigned idx = threadIdx.x + blockDim.x * blockIdx.x;
+
+    /*
     __shared__ T a_shared[POLLARD_SET_COUNT];
     __shared__ T b_shared[POLLARD_SET_COUNT];
-
-    unsigned idx = threadIdx.x + blockDim.x * blockIdx.x;
 
     if(idx < POLLARD_SET_COUNT)
     {
@@ -114,6 +121,7 @@ __global__ void rho_pollard_kernel( const T *a,
     }
 
     __syncthreads();
+    */
 
     Point<T> X1i = X1[idx];
     Point<T> X2i = X2[idx];
@@ -121,10 +129,10 @@ __global__ void rho_pollard_kernel( const T *a,
 
     do
     {
-        iteration(X1i, c1i, d1i, a_shared, b_shared, R, ec);
+        iteration(X1i, c1i, d1i, a, b, R, ec);
 
-        iteration(X2i, c2i, d2i, a_shared, b_shared, R, ec);
-        iteration(X2i, c2i, d2i, a_shared, b_shared, R, ec);
+        iteration(X2i, c2i, d2i, a, b, R, ec);
+        iteration(X2i, c2i, d2i, a, b, R, ec);
     }
     while(X1i != X2i && found_idx_d == -1);
 
@@ -178,7 +186,6 @@ T rho_pollard(  const Point<T> &Q,
     {
         for(unsigned i = 0; i < POLLARD_SET_COUNT; i++)
         {
-
             a_host[i].random(order);
             b_host[i].random(order);
             R_host[i] = ec.add(ec.mul(a_host[i], P), ec.mul(b_host[i], Q));
@@ -237,13 +244,19 @@ T rho_pollard(  const Point<T> &Q,
         c2 = c2 % order;
         d2 = d2 % order;
 
-        if(ec.add(ec.mul(c1, P), ec.mul(d1, Q)) != X1 || ec.add(ec.mul(c2, P), ec.mul(d2, Q)) != X2 || !ec.check(X1))
+        if(ec.add(ec.mul(c2, P), ec.mul(d2, Q)) != X2 || ec.add(ec.mul(c1, P), ec.mul(d1, Q)) != X1 || !ec.check(X1))
+        {
+            std::cerr << "[INFO] c1 * P + d1 * Q != X1 or c2 * P + d2 * Q != X2 or X1 is not on curve." << std::endl;
             continue;
+        }
 
         T c = c1 - c2; if(c < 0) c += order;
         T d = d2 - d1; if(d < 0) d += order;
         if(d == 0)
+        {
+            std::cerr << "[INFO] d1 == d2" << std::endl;
             continue;
+        }
 
         T d_inv = detail::InvMod(d, order); if(d_inv < 0) d_inv += order;
 
