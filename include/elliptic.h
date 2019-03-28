@@ -60,8 +60,9 @@ CUDA_CALLABLE T EGCD(const T &a, const T &b, T &u, T &v)
     return g;
 }
 
+// Solve linear congruence equation x * z == 1 (mod n) for z
 template<typename T>
-CUDA_CALLABLE T InvMod(const T &x, const T &n) // Solve linear congruence equation x * z == 1 (mod n) for z
+CUDA_CALLABLE T invmod(const T &x, const T &n)
 {
     T X = x;
     T u, v, g, z;
@@ -168,7 +169,7 @@ class FiniteFieldElement
 
     CUDA_CALLABLE friend FiniteFieldElement<T> operator/(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
     {
-        return FiniteFieldElement<T>(detail::mulmod(lhs.i_, detail::InvMod(rhs.i_, rhs.P), rhs.P), rhs.P);
+        return FiniteFieldElement<T>(detail::mulmod(lhs.i_, detail::invmod(rhs.i_, rhs.P), rhs.P), rhs.P);
     }
  
     CUDA_CALLABLE friend FiniteFieldElement<T> operator+(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
@@ -265,7 +266,7 @@ class EllipticCurve
         }
         else
         {
-            s = (y1 - y2) / (x1 - x2);
+            s = (y1 - y2) * ffe_t(detail::invmod((x1 - x2).i(), P), P);
             xR = s * s - x1 - x2;
         }
         yR = -y1 + s * (x1 - ffe_t(xR, P));

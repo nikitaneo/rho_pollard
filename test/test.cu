@@ -51,7 +51,7 @@ TEST(Detail, EGCD)
 TEST(Detail, Inverse)
 {
     int128_t a = 4, b = 101;
-    ASSERT_EQ(detail::InvMod(a, b) * a % b, 1);
+    ASSERT_EQ(detail::invmod(a, b) * a % b, 1);
 }
 
 TEST(ELLIPTIC_CURVE, teske)
@@ -124,7 +124,6 @@ TEST(ELLIPTIC_CURVE, rho_pollard_GPU)
     }
 }
 
-/*
 TEST(ELLIPTIC_CURVE, sec112r1)
 {
     using namespace boost::multiprecision;
@@ -141,7 +140,6 @@ TEST(ELLIPTIC_CURVE, sec112r1)
     checked_int128_t m("0xf6893de509504e9be7e85b7ae3b");
     ASSERT_EQ(cpu::rho_pollard<checked_int128_t>(h, g, g_order, ec), m);
 }
-*/
 
 int main(int argc, char ** argv)
 {

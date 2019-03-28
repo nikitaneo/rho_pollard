@@ -198,6 +198,16 @@ public:
         return *this;
     }
 
+    CUDA_CALLABLE uint32_t& operator[](int index)
+    {
+        return pn[index];
+    }
+
+    CUDA_CALLABLE uint32_t at(int index) const
+    {
+        return pn[index];
+    }
+
     CUDA_CALLABLE int128_t& operator<<=(unsigned int shift);
     CUDA_CALLABLE int128_t& operator>>=(unsigned int shift);
 
