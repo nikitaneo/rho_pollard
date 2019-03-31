@@ -37,18 +37,18 @@ T rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellip
         {
             index = X1.getX() & 0xF;
             X1 = ec.add(X1, R[index]);
-            c1 += a[index];
-            d1 += b[index];
+            c1 += a[index]; if(c1 >= order) c1 -= order;
+            d1 += b[index]; if(d1 >= order) d1 -= order;
 
             index = X2.getX() & 0xF;
             X2 = ec.add(X2, R[index]);
-            c2 += a[index];
-            d2 += b[index];
+            c2 += a[index]; if(c2 >= order) c2 -= order;
+            d2 += b[index]; if(d2 >= order) d2 -= order;
         
             index = X2.getX() & 0xF;
             X2 = ec.add(X2, R[index]);
-            c2 += a[index];
-            d2 += b[index];
+            c2 += a[index]; if(c2 >= order) c2 -= order;
+            d2 += b[index]; if(d2 >= order) d2 -= order;
         }
         while(X1 != X2);
 
@@ -63,16 +63,16 @@ T rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellip
             continue;
         }
 
-        T c = c2 - c1; if(c < 0) c += order;
-        T d = d1 - d2; if(d < 0) d += order;
+        T c = c2 - c1; if(c.isLessZero()) c += order;
+        T d = d1 - d2; if(d.isLessZero()) d += order;
         if(d == 0)
         {
             std::cerr << "[INFO] d1 == d2" << std::endl;
             continue;
         }
 
-        T d_inv = detail::invmod(d, order); if(d_inv < 0) d_inv += order;
-
+        T d_inv = detail::invmod(d, order); if(d_inv.isLessZero()) d_inv += order;
+        assert((c * d_inv) % order != 0);
         return (c * d_inv) % order;
     }
 }
@@ -312,15 +312,15 @@ T rho_pollard(  const Point<T> &Q,
             continue;
         }
 
-        T c = c1 - c2; if(c < 0) c += order;
-        T d = d2 - d1; if(d < 0) d += order;
+        T c = c1 - c2; if(c.isLessZero()) c += order;
+        T d = d2 - d1; if(d.isLessZero()) d += order;
         if(d == 0)
         {
             std::cerr << "[INFO] d1 == d2" << std::endl;
             continue;
         }
 
-        T d_inv = detail::invmod(d, order); if(d_inv < 0) d_inv += order;
+        T d_inv = detail::invmod(d, order); if(d_inv.isLessZero()) d_inv += order;
 
         result = (c * d_inv) % order;
         break;

@@ -238,7 +238,20 @@ public:
 
     CUDA_CALLABLE int128_t& operator-=(const int128_t& b)
     {
-        *this += -b;
+        uint64_t n = 0;
+
+        n = (uint64_t)pn[0] - b.pn[0];
+        pn[0] = n & 0xffffffff;
+
+        n = (uint64_t)pn[1] - b.pn[1] - ((n >> 32) != 0);
+        pn[1] = n & 0xffffffff;
+
+        n = (uint64_t)pn[2] - b.pn[2] - ((n >> 32) != 0);
+        pn[2] = n & 0xffffffff;
+        
+        n = (uint64_t)pn[3] - b.pn[3] - ((n >> 32) != 0);
+        pn[3] = n & 0xffffffff;
+    
         return *this;
     }
 
@@ -277,6 +290,11 @@ public:
         const int128_t ret = *this;
         --(*this);
         return ret;
+    }
+
+    CUDA_CALLABLE bool isLessZero() const
+    {
+        return pn[3] >> 31;
     }
 
     CUDA_CALLABLE int CompareTo(const int128_t& b) const;
@@ -342,13 +360,27 @@ CUDA_CALLABLE int128_t& int128_t::operator<<=(unsigned int shift)
     memset(pn, 0, sizeof(pn));
     int k = shift / 32;
     shift = shift % 32;
-    for (int i = 0; i < 4; ++i)
-    {
-        if (i + k + 1 < WIDTH && shift != 0)
-            pn[i + k + 1] |= (a.pn[i] >> (32 - shift));
-        if (i + k < WIDTH)
-            pn[i + k] |= (a.pn[i] << shift);
-    }
+
+    unsigned t = 32 - shift;
+
+    if (k < 3 && shift != 0)
+        pn[k + 1] |= (a.pn[0] >> t);
+    if (k < 4)
+        pn[k] |= (a.pn[0] << shift);
+
+    if (k < 2 && shift != 0)
+        pn[k + 2] |= (a.pn[1] >> t);
+    if (k < 3)
+        pn[k + 2] |= (a.pn[1] << shift);
+    
+    if (k == 0 && shift != 0)
+        pn[k + 3] |= (a.pn[2] >> t);
+    if (k < 2)
+        pn[k + 2] |= (a.pn[2] << shift);
+
+    if (k == 0)
+        pn[k + 3] |= (a.pn[3] << shift);
+
     return *this;
 }
 
@@ -359,18 +391,25 @@ CUDA_CALLABLE int128_t& int128_t::operator>>=(unsigned int shift)
     int k = shift / 32;
     shift = shift % 32;
 
-    for(unsigned i = 0; i + k < 4; ++i)
-        pn[i] = a.pn[i + k];
+    unsigned t = 32 - shift;
 
-    uint32_t mask_least = (1 << shift) - 1;
-    uint32_t carry1 = 0, carry2 = 0;
-    for(int i = 3 - k; i >= 0; --i)
-    {
-        carry1 = pn[i] & mask_least;
-        pn[i] >>= shift;
-        pn[i] |= (carry2 << (32 - shift));
-        carry2 = carry1;
-    }
+    if (k == 0)
+        pn[0] |= (a.pn[0] >> shift);
+    
+    if (k == 0 && shift != 0)
+        pn[0] |= (a.pn[1] << t);
+    if (k <= 1)
+        pn[1 - k] |= (a.pn[1] >> shift);
+    
+    if (k <= 1 && shift != 0)
+        pn[1 - k] |= (a.pn[2] << t);
+    if (k <= 2)
+        pn[2 - k] |= (a.pn[2] >> shift);
+
+    if (k <= 2 && shift != 0)
+        pn[2 - k] |= (a.pn[3] << t);
+    if (k <= 3)
+        pn[3 - k] |= (a.pn[3] >> shift);
 
     return *this;
 }
@@ -418,32 +457,35 @@ int128_t& int128_t::operator*=(const int128_t& b)
     return *this;
 }
 
+// Works for values greater then 0
 CUDA_CALLABLE int128_t& int128_t::operator/=(const int128_t& b)
 {
-    int sign = b > 0 && (*this) > 0 ? 1 : -1;
-    int128_t div = b > 0 ? b : -b;     // make a copy, so we can shift.
-    int128_t num = *this > 0 ? *this : -(*this); // make a copy, so we can subtract.
+    int128_t div = b;
+    int128_t num = (*this);
+
     memset(pn, 0, sizeof(pn));
+
     int num_bits = num.bits();
     int div_bits = div.bits();
     assert(div_bits != 0 && "Division by zero");
+    
     if (div_bits > num_bits) // the result is certainly 0.
         return *this;
+    
     int shift = num_bits - div_bits;
     div <<= shift; // shift so that div and num align.
-    while (shift >= 0)
+    
+    while(shift >= 0)
     {
         if (num >= div)
         {
             num -= div;
-            pn[shift / 32] |= (1 << (shift & 31)); // set a bit of the result.
+            pn[shift >> 5] |= (1 << (shift & 31)); // set a bit of the result.
         }
         div >>= 1; // shift back.
         --shift;
     }
 
-    if( sign < 0 )
-        (*this) = -(*this);
     return (*this);
 }
 

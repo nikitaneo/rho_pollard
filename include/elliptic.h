@@ -18,7 +18,7 @@ namespace detail
 template<typename T>
 CUDA_CALLABLE T mulmod(const T &A, const T &B, const T &mod) 
 { 
-    T res = 0;
+    T res{ 0 };
     T a = A;
     T b = B; 
     while( b != 0 ) 
@@ -33,6 +33,27 @@ CUDA_CALLABLE T mulmod(const T &A, const T &B, const T &mod)
     // Return result 
     return res; 
 }
+
+template<typename T>
+CUDA_CALLABLE T ToMont(const T &A, const T &mod)
+{
+    // for module 907, B = 2, n = 10
+    return (A << 10) % mod;
+} 
+
+template<typename T>
+CUDA_CALLABLE T FromMont(const T &A, const T &mod)
+{
+    // for module 907, B = 2, n = 10
+    return (A >> 10) % mod;
+} 
+
+// A and B should be in Montgomery representation
+template<typename T>
+CUDA_CALLABLE T MontProd(const T &A, const T &B, const T &mod)
+{
+    return 0;
+} 
 
 template<typename T>
 CUDA_CALLABLE T EGCD(const T &a, const T &b, T &u, T &v)
@@ -75,16 +96,10 @@ CUDA_CALLABLE T invmod(const T &x, const T &n)
     {
         z = u % n;
     }
-    return z < 0 ? z + n : z;
+    return z.isLessZero() ? z + n : z;
 }
 } // namespace detail
 
-/*
-    An element in a Galois field FP
-    Adapted for the specific behaviour of the "mod" function where (-n) mod m returns a negative number
-    Allows basic arithmetic operations between elements:
-    +,-,/,scalar multiply                
-*/
 template <typename T>
 class FiniteFieldElement
 {
@@ -98,7 +113,7 @@ class FiniteFieldElement
         else
             i_ = i;
 
-        if (i < 0)
+        if (i.isLessZero())
         {
             i_ += P;
         }
