@@ -15,6 +15,20 @@
 
 #define CUDA_CALLABLE __host__ __device__
 
+CUDA_CALLABLE int nlz(uint32_t k)
+{
+   union
+   {
+      unsigned asInt[2];
+      double asDouble;
+   };
+   int n;
+
+   asDouble = (double)k + 0.5;
+   n = 1054 - (asInt[1] >> 20);
+   return n;
+}
+
 __host__ char ToLower(char c)
 {
     return (c >= 'A' && c <= 'Z' ? (c - 'A') + 'a' : c);
@@ -70,8 +84,7 @@ __host__ std::string HexStr(const T itbegin, const T itend, bool fSpaces=false)
 class int128_t
 {
 protected:
-    static constexpr int WIDTH = 128 / 32;
-    uint32_t pn[WIDTH];
+    uint32_t pn[4];
 public:
 
     CUDA_CALLABLE int128_t()
@@ -238,19 +251,23 @@ public:
 
     CUDA_CALLABLE int128_t& operator-=(const int128_t& b)
     {
-        uint64_t n = 0;
+        union {
+            uint32_t lh[2];
+            uint64_t n;
+        };
+        n = 0;
 
         n = (uint64_t)pn[0] - b.pn[0];
-        pn[0] = n & 0xffffffff;
+        pn[0] = lh[0];
 
-        n = (uint64_t)pn[1] - b.pn[1] - ((n >> 32) != 0);
-        pn[1] = n & 0xffffffff;
+        n = (uint64_t)pn[1] - b.pn[1] - (lh[1] != 0);
+        pn[1] = lh[0];
 
-        n = (uint64_t)pn[2] - b.pn[2] - ((n >> 32) != 0);
-        pn[2] = n & 0xffffffff;
+        n = (uint64_t)pn[2] - b.pn[2] - (lh[1] != 0);
+        pn[2] = lh[0];
         
-        n = (uint64_t)pn[3] - b.pn[3] - ((n >> 32) != 0);
-        pn[3] = n & 0xffffffff;
+        n = (uint64_t)pn[3] - b.pn[3] - (lh[1] != 0);
+        pn[3] = lh[0];
     
         return *this;
     }
@@ -262,7 +279,7 @@ public:
     {
         // prefix operator
         int i = 0;
-        while (i < WIDTH && ++pn[i] == 0)
+        while (i < 4 && ++pn[i] == 0)
             ++i;
         return *this;
     }
@@ -279,7 +296,7 @@ public:
     {
         // prefix operator
         int i = 0;
-        while (i < WIDTH && --pn[i] == 0xffffffff)
+        while (i < 4 && --pn[i] == 0xffffffff)
             ++i;
         return *this;
     }
@@ -294,7 +311,7 @@ public:
 
     CUDA_CALLABLE bool isLessZero() const
     {
-        return pn[3] >> 31;
+        return pn[3] & 0x80000000;
     }
 
     CUDA_CALLABLE friend inline const int128_t operator%(const int128_t& a, const int128_t& b) { return a - b * ( a / b ); }
@@ -410,19 +427,16 @@ public:
      * Returns the position of the highest bit set plus one, or zero if the
      * value is zero.
      */
-    CUDA_CALLABLE unsigned int bits() const
+    CUDA_CALLABLE inline unsigned bits() const
     {
-        for (int pos = 3; pos >= 0; --pos)
-        {
-            if (pn[pos])
-            {
-                unsigned p = 0;
-                uint32_t y = pn[pos];
-                while (0 != y)
-                    ++p, y >>= 1;
-                return (pos << 5) + p;
-            }
-        }
+        if(pn[3])
+            return 129 - nlz(pn[3]);
+        if(pn[2])
+            return 97 - nlz(pn[2]);
+        if(pn[1])
+            return 65 - nlz(pn[1]);
+        if(pn[0])
+            return 33 - nlz(pn[0]);
         return 0;
     }
 
@@ -600,7 +614,7 @@ void int128_t::SetHex(const char* psz)
         psz++;
     psz--;
     unsigned char* p1 = (unsigned char*)pn;
-    unsigned char* pend = p1 + WIDTH * 4;
+    unsigned char* pend = p1 + 16;
     while (psz >= pbegin && p1 < pend)
     {
         *p1 = ::HexDigit(*psz--);
@@ -615,8 +629,8 @@ void int128_t::SetHex(const char* psz)
 const int128_t& int128_t::random( const int128_t &mod )
 {
     static std::mt19937 gen( time(NULL) );
-    std::generate(pn, pn + WIDTH, std::ref(gen));
-    pn[WIDTH - 1] &= ~(1U << 31);
+    std::generate(pn, pn + 4, std::ref(gen));
+    pn[3] &= ~(1U << 31);
     if( *this >= mod )
         *this %= mod;
     return *this;
