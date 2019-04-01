@@ -42,6 +42,10 @@ TEST(INT128, Simple)
     ASSERT_EQ(c + d, int128_t("0x1411b2379671c75555effd01d4baa"));
     ASSERT_EQ(c - d, int128_t("0x75dd32055eaa4777a1edad3cf566"));
     ASSERT_EQ(c/2, int128_t("0x6dbe155fb171af33403b5f569044"));
+
+    c = int128_t("0x37276cf767b9e78402ecbaed");
+    d = int128_t("0x176aeb86b56fcbe861482259");
+    ASSERT_EQ(c / d, 2);
 }
 
 TEST(Detail, EGCD)
@@ -128,7 +132,6 @@ TEST(ELLIPTIC_CURVE, rho_pollard_gpu)
     }
 }
 
-/*
 TEST(ELLIPTIC_CURVE, sec112r1)
 {
     int128_t p("0xdb7c2abf62e35e668076bead208b");
@@ -142,9 +145,10 @@ TEST(ELLIPTIC_CURVE, sec112r1)
     Point<int128_t> h(int128_t("0x45cf81634b4ca4c6aac505843b94"), int128_t("0xbda8eea7a5004255fa03c48d4ae8"));
 
     int128_t m("0xf6893de509504e9be7e85b7ae3b");
+    ASSERT_EQ(ec.mul(m, g), h);
+    ASSERT_EQ(ec.mul(g_order, g), Point<int128_t>(0, 0));
     ASSERT_EQ(cpu::rho_pollard<int128_t>(h, g, g_order, ec), m);
 }
-*/
 int main(int argc, char ** argv)
 {
     ::testing::InitGoogleTest(&argc, argv);

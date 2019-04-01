@@ -297,8 +297,6 @@ public:
         return pn[3] >> 31;
     }
 
-    CUDA_CALLABLE int CompareTo(const int128_t& b) const;
-
     CUDA_CALLABLE friend inline const int128_t operator%(const int128_t& a, const int128_t& b) { return a - b * ( a / b ); }
     CUDA_CALLABLE friend inline const int128_t operator+(const int128_t& a, const int128_t& b) { return int128_t(a) += b; }
     CUDA_CALLABLE friend inline const int128_t operator-(const int128_t& a, const int128_t& b) { return int128_t(a) -= b; }
@@ -322,10 +320,87 @@ public:
     }
 
     CUDA_CALLABLE friend inline bool operator!=(const int128_t& a, const int128_t& b) { return !(a == b); }
-    CUDA_CALLABLE friend inline bool operator>(const int128_t& a, const int128_t& b) { return a.CompareTo(b) > 0; }
-    CUDA_CALLABLE friend inline bool operator<(const int128_t& a, const int128_t& b) { return a.CompareTo(b) < 0; }
-    CUDA_CALLABLE friend inline bool operator>=(const int128_t& a, const int128_t& b) { return a.CompareTo(b) >= 0; }
-    CUDA_CALLABLE friend inline bool operator<=(const int128_t& a, const int128_t& b) { return a.CompareTo(b) <= 0; }
+
+    CUDA_CALLABLE friend inline bool operator<(const int128_t& a, const int128_t& b)
+    {
+        bool lhsSign = a.pn[3] & 0x80000000;
+        bool rhsSign = b.pn[3] & 0x80000000;
+
+        if( lhsSign )
+        {
+            if( rhsSign )
+            {
+                int i = 3;
+                while(a.pn[i] == b.pn[i] && i > 0)
+                    --i;
+
+                if(a.pn[i] > b.pn[i])
+                    return true;
+                else
+                    return false;
+            }
+            else
+                return true;
+        }
+        else
+        {
+            if( !rhsSign )
+            {
+                int i = 3;
+                while(a.pn[i] == b.pn[i] && i > 0)
+                    --i;
+
+                if(a.pn[i] < b.pn[i])
+                    return true;
+                else
+                    return false;
+            }
+            else
+                return false;
+        }
+    }
+
+    CUDA_CALLABLE friend inline bool operator>(const int128_t& a, const int128_t& b)
+    {
+        bool lhsSign = a.pn[3] & 0x80000000;
+        bool rhsSign = b.pn[3] & 0x80000000;
+
+        if( lhsSign )
+        {
+            if( rhsSign )
+            {
+                int i = 3;
+                while(a.pn[i] == b.pn[i] && i > 0)
+                    --i;
+
+                if(a.pn[i] > b.pn[i])
+                    return false;
+                else
+                    return true;
+            }
+            else
+                return false;
+        }
+        else
+        {
+            if( !rhsSign )
+            {
+                int i = 3;
+                while(a.pn[i] == b.pn[i] && i > 0)
+                    --i;
+
+                if(a.pn[i] < b.pn[i])
+                    return false;
+                else
+                    return true;
+            }
+            else
+                return true;
+        }
+    }
+
+    CUDA_CALLABLE friend inline bool operator>=(const int128_t& a, const int128_t& b) { return a > b || a == b; }
+    CUDA_CALLABLE friend inline bool operator<=(const int128_t& a, const int128_t& b) { return a < b || a == b; }
     __host__ friend inline std::ostream& operator<<(std::ostream& out, const int128_t &a) { return out << a.GetHex(); }
 
     __host__ std::string GetHex() const;
@@ -358,29 +433,36 @@ CUDA_CALLABLE int128_t& int128_t::operator<<=(unsigned int shift)
 {
     int128_t a(*this);
     memset(pn, 0, sizeof(pn));
-    int k = shift / 32;
+    int k = shift >> 5;
     shift = shift % 32;
 
     unsigned t = 32 - shift;
 
-    if (k < 3 && shift != 0)
-        pn[k + 1] |= (a.pn[0] >> t);
     if (k < 4)
+    {
         pn[k] |= (a.pn[0] << shift);
 
-    if (k < 2 && shift != 0)
-        pn[k + 2] |= (a.pn[1] >> t);
-    if (k < 3)
-        pn[k + 2] |= (a.pn[1] << shift);
-    
-    if (k == 0 && shift != 0)
-        pn[k + 3] |= (a.pn[2] >> t);
-    if (k < 2)
-        pn[k + 2] |= (a.pn[2] << shift);
+        if (k < 3)
+        {
+            if(shift)
+                pn[k + 1] |= (a.pn[0] >> t);
+            pn[k + 1] |= (a.pn[1] << shift);
 
-    if (k == 0)
-        pn[k + 3] |= (a.pn[3] << shift);
+            if (k < 2)
+            {
+                if(shift)
+                    pn[k + 2] |= (a.pn[1] >> t);
+                pn[k + 2] |= (a.pn[2] << shift);
 
+                if (k == 0)
+                {
+                    if(shift)
+                        pn[k + 3] |= (a.pn[2] >> t);
+                    pn[k + 3] |= (a.pn[3] << shift);
+                }
+            }
+        }
+    }
     return *this;
 }
 
@@ -388,26 +470,32 @@ CUDA_CALLABLE int128_t& int128_t::operator>>=(unsigned int shift)
 {
     int128_t a(*this);
     memset(pn, 0, sizeof(pn));
-    int k = shift / 32;
+    int k = shift >> 5;
     shift = shift % 32;
 
     unsigned t = 32 - shift;
 
     if (k == 0)
+    {
         pn[0] |= (a.pn[0] >> shift);
-    
-    if (k == 0 && shift != 0)
-        pn[0] |= (a.pn[1] << t);
-    if (k <= 1)
-        pn[1 - k] |= (a.pn[1] >> shift);
-    
-    if (k <= 1 && shift != 0)
-        pn[1 - k] |= (a.pn[2] << t);
-    if (k <= 2)
-        pn[2 - k] |= (a.pn[2] >> shift);
+        if(shift)
+            pn[0] |= (a.pn[1] << t);
+    }
 
-    if (k <= 2 && shift != 0)
-        pn[2 - k] |= (a.pn[3] << t);
+    if (k <= 1)
+    {
+        pn[1 - k] |= (a.pn[1] >> shift);
+        if(shift)
+            pn[1 - k] |= (a.pn[2] << t);
+    }
+
+    if (k <= 2)
+    {
+        pn[2 - k] |= (a.pn[2] >> shift);
+        if(shift)
+            pn[2 - k] |= (a.pn[3] << t);            
+    }
+
     if (k <= 3)
         pn[3 - k] |= (a.pn[3] >> shift);
 
@@ -487,45 +575,6 @@ CUDA_CALLABLE int128_t& int128_t::operator/=(const int128_t& b)
     }
 
     return (*this);
-}
-
-CUDA_CALLABLE int int128_t::CompareTo(const int128_t& b) const
-{
-    bool lhsSign = pn[3] >> 31;
-    bool rhsSign = b.pn[3] >> 31;
-
-    if( lhsSign && !rhsSign )
-    {
-        return -1;
-    }
-    else if( !lhsSign && rhsSign )
-    {
-        return 1;
-    }
-    else if( lhsSign && rhsSign )
-    {
-        int i = 3;
-        while(pn[i] == b.pn[i] && i > 0)
-            --i;
-        if(pn[i] > b.pn[i])
-            return -1;
-        else if(pn[i] == b.pn[i])
-            return 0;
-        else
-            return 1;
-    }
-    else
-    {
-        int i = 3;
-        while(pn[i] == b.pn[i] && i > 0)
-            --i;
-        if(pn[i] > b.pn[i])
-            return 1;
-        else if(pn[i] == b.pn[i])
-            return 0;
-        else
-            return -1;
-    }
 }
 
 __host__ std::string int128_t::GetHex() const

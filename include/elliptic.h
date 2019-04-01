@@ -209,7 +209,7 @@ class FiniteFieldElement
 
     CUDA_CALLABLE friend FiniteFieldElement<T> operator*(const T &n, const FiniteFieldElement<T> &rhs)
     {
-        return FiniteFieldElement<T>(detail::mulmod(n, rhs.i_, rhs.P), rhs.P);
+        return FiniteFieldElement<T>(n * rhs.i_, rhs.P);
     }
 
     CUDA_CALLABLE friend FiniteFieldElement<T> operator*(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
@@ -272,19 +272,21 @@ class EllipticCurve
             return Point<T>(0, 0);
         }
         
-        T xR, yR;
+        ffe_t xR(0, P), yR(0, P);
         ffe_t x1(lhs.x, P), y1(lhs.y, P), x2(rhs.x, P), y2(rhs.y, P), s(0, P); 
-        if (lhs.x == rhs.x && lhs.y == rhs.y && lhs.y != 0 ) // P == Q, doubling
+        if (x1 == x2 && y1 == y2 && y1 != 0 ) // P == Q, doubling
         {
-            s = (3 * x1 * x1 + a) / ffe_t(y1.i() << 1, P);
-            xR = s * s - ffe_t(x1.i() << 1, P);
+            ffe_t tmp = 2 * y1;
+            s = (3 * detail::mulmod(x1.i(), x1.i(), P) + ffe_t(a, P)) / (2 * y1);
+            xR = s * s - 2 * x1;
+            yR = -y1 + s * (x1 - xR);
         }
         else
         {
-            s = (y1 - y2) * ffe_t(detail::invmod((x1 - x2).i(), P), P);
+            s = (y1 - y2) / (x1 - x2);
             xR = s * s - x1 - x2;
+            yR = -y1 + s * (x1 - xR);
         }
-        yR = -y1 + s * (x1 - ffe_t(xR, P));
 
         return Point<T>(xR, yR);
     }
