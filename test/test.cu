@@ -98,7 +98,7 @@ TEST(ELLIPTIC_CURVE, teske)
     }
 }
 
-TEST(ELLIPTIC_CURVE, rho_pollard_cpu)
+TEST(ELLIPTIC_CURVE, bits10_cpu)
 {
     int128_t p = 967;
     int128_t a = 0;
@@ -108,14 +108,12 @@ TEST(ELLIPTIC_CURVE, rho_pollard_cpu)
     Point<int128_t> P(47, 19);
     int128_t order = 907;
 
-    for(int i = 1; i < order; i++)
-    {
-        ASSERT_EQ(cpu::rho_pollard<int128_t>(ec.mul(i, P), P, order, ec), i);
-        // std::cout << "CPU success #" << i << std::endl;
-    }
+    int128_t m = 505;
+    auto res = cpu::rho_pollard<int128_t>(ec.mul(m, P), P, order, ec);
+    ASSERT_EQ(res.first, m);
 }
 
-TEST(ELLIPTIC_CURVE, rho_pollard_gpu)
+TEST(ELLIPTIC_CURVE, bits10_gpu)
 {
     int128_t p = 967;
     int128_t a = 0;
@@ -125,13 +123,99 @@ TEST(ELLIPTIC_CURVE, rho_pollard_gpu)
     Point<int128_t> P(47, 19);
     int128_t order = 907;
 
-    for(int i = 1; i < order; i++)
-    {
-        ASSERT_EQ(gpu::rho_pollard<int128_t>(ec.mul(i, P), P, order, ec), i);
-        // std::cout << "GPU success #" << i << std::endl;
-    }
+    int128_t m = 505;
+    auto res = gpu::rho_pollard<int128_t>(ec.mul(m, P), P, order, ec);
+    ASSERT_EQ(res.first, m);
 }
 
+
+TEST(ELLIPTIC_CURVE, bits35_cpu)
+{
+    int128_t p("0x54f174ca1");
+
+    int128_t a("0x1fdc776b2");
+    int128_t b("0x1b92df928");
+
+    EllipticCurve<int128_t> ec(a, b, p);
+    Point<int128_t> g(int128_t("0x348eb7221"), int128_t("0x49e2e6396"));
+    int128_t g_order("0x54f1be6b9");
+
+    int128_t m = g_order / 2;
+    Point<int128_t> h = ec.mul(m, g);
+
+    ASSERT_EQ(ec.mul(g_order, g), Point<int128_t>(0, 0));
+    auto result = cpu::rho_pollard<int128_t>(h, g, g_order, ec);
+    ASSERT_EQ(result.first, m);
+
+    std::cout << "[bits35_cpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
+}
+
+TEST(ELLIPTIC_CURVE, bits35_gpu)
+{
+    int128_t p("0x54f174ca1");
+
+    int128_t a("0x1fdc776b2");
+    int128_t b("0x1b92df928");
+
+    EllipticCurve<int128_t> ec(a, b, p);
+    Point<int128_t> g(int128_t("0x348eb7221"), int128_t("0x49e2e6396"));
+    int128_t g_order("0x54f1be6b9");
+
+    int128_t m = g_order / 2;
+    Point<int128_t> h = ec.mul(m, g);
+
+    ASSERT_EQ(ec.mul(g_order, g), Point<int128_t>(0, 0));
+    auto result = gpu::rho_pollard<int128_t>(h, g, g_order, ec);
+    ASSERT_EQ(result.first, m);
+
+    std::cout << "[bits35_gpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
+}
+
+/*
+TEST(ELLIPTIC_CURVE, bits45_cpu)
+{
+    int128_t p("0x1b480a4ae579");
+
+    int128_t a("0x4d074790451");
+    int128_t b("0xd854b3cef28");
+
+    EllipticCurve<int128_t> ec(a, b, p);
+    Point<int128_t> g(int128_t("0xf2c89c6cbd5"), int128_t("0x34cb9515c4e"));
+    int128_t g_order("0x1b480a938913");
+
+    int128_t m("0xc");
+    Point<int128_t> h = ec.mul(m, g);
+
+    ASSERT_EQ(ec.mul(g_order, g), Point<int128_t>(0, 0));
+    auto result = cpu::rho_pollard<int128_t>(h, g, g_order, ec);
+    ASSERT_EQ(result.first, m);
+
+    std::cout << "[bits45_cpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
+}
+
+TEST(ELLIPTIC_CURVE, bits45_gpu)
+{
+    int128_t p("0x1b480a4ae579");
+
+    int128_t a("0x4d074790451");
+    int128_t b("0xd854b3cef28");
+
+    EllipticCurve<int128_t> ec(a, b, p);
+    Point<int128_t> g(int128_t("0xf2c89c6cbd5"), int128_t("0x34cb9515c4e"));
+    int128_t g_order("0x1b480a938913");
+
+    int128_t m("0xc");
+    Point<int128_t> h = ec.mul(m, g);
+
+    ASSERT_EQ(ec.mul(g_order, g), Point<int128_t>(0, 0));
+    auto result = gpu::rho_pollard<int128_t>(h, g, g_order, ec);
+    ASSERT_EQ(result.first, m);
+
+    std::cout << "[bits45_gpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
+}
+*/
+
+/*
 TEST(ELLIPTIC_CURVE, sec112r1)
 {
     int128_t p("0xdb7c2abf62e35e668076bead208b");
@@ -149,6 +233,8 @@ TEST(ELLIPTIC_CURVE, sec112r1)
     ASSERT_EQ(ec.mul(g_order, g), Point<int128_t>(0, 0));
     ASSERT_EQ(cpu::rho_pollard<int128_t>(h, g, g_order, ec), m);
 }
+*/
+
 int main(int argc, char ** argv)
 {
     ::testing::InitGoogleTest(&argc, argv);

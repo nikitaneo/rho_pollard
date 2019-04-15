@@ -1,5 +1,5 @@
 CC=/usr/local/cuda-8.0/bin/nvcc
-CFLAGS=-std=c++11 -ccbin /usr/bin/g++-4.8
+CFLAGS=-std=c++11 -ccbin /usr/bin/g++-4.8 -Wno-deprecated-gpu-targets
 LDFLAGS=-lgtest -lgtest_main -L/usr/lib -lpthread
 INCLUDE=-I /usr/local/include/gtest -I include
 
@@ -9,7 +9,7 @@ opt: test/test.cu
 	$(CC) test/test.cu -o bin/test.out -O3 $(LDFLAGS) $(CFLAGS) $(INCLUDE)
 
 debug: test/test.cu
-	$(CC) test/test.cu -o bin/test.out -O0 -g $(LDFLAGS) $(CFLAGS) $(INCLUDE)
+	$(CC) test/test.cu -o bin/test.out -O0 -g -G -lineinfo $(LDFLAGS) $(CFLAGS) $(INCLUDE)
 
 clean:
 	rm -rf bin/*

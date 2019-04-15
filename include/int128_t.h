@@ -1,33 +1,17 @@
-// Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2018 The Bitcoin Core developers
-// Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
-
-#ifndef BITCOIN_uint256_H
-#define BITCOIN_uint256_H
+#ifndef _int128_H
+#define _int128_H
 
 #include <assert.h>
 #include <limits>
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include <random>
+#include <functional>
+#include <algorithm>
 #include <cuda_runtime.h>
 
 #define CUDA_CALLABLE __host__ __device__
-
-CUDA_CALLABLE int nlz(uint32_t k)
-{
-   union
-   {
-      unsigned asInt[2];
-      double asDouble;
-   };
-   int n;
-
-   asDouble = (double)k + 0.5;
-   n = 1054 - (asInt[1] >> 20);
-   return n;
-}
 
 __host__ char ToLower(char c)
 {
@@ -87,10 +71,7 @@ protected:
     uint32_t pn[4];
 public:
 
-    CUDA_CALLABLE int128_t()
-    {
-        memset(pn, 0, sizeof(pn));
-    }
+    CUDA_CALLABLE int128_t() { }
 
     CUDA_CALLABLE int128_t(const int128_t& b)
     {
@@ -204,21 +185,17 @@ public:
         return *this;
     }
 
+    CUDA_CALLABLE int128_t& operator|=(uint32_t b)
+    {
+        pn[0] |= b;
+        return *this;
+    }
+
     CUDA_CALLABLE int128_t& operator|=(uint64_t b)
     {
         pn[0] |= (unsigned int)b;
         pn[1] |= (unsigned int)(b >> 32);
         return *this;
-    }
-
-    CUDA_CALLABLE uint32_t& operator[](int index)
-    {
-        return pn[index];
-    }
-
-    CUDA_CALLABLE uint32_t at(int index) const
-    {
-        return pn[index];
     }
 
     CUDA_CALLABLE int128_t& operator<<=(unsigned int shift);
@@ -275,35 +252,35 @@ public:
     CUDA_CALLABLE int128_t& operator*=(const int128_t& b);
     CUDA_CALLABLE int128_t& operator/=(const int128_t& b);
 
+    // prefix operator
     CUDA_CALLABLE int128_t& operator++()
     {
-        // prefix operator
         int i = 0;
         while (i < 4 && ++pn[i] == 0)
             ++i;
         return *this;
     }
 
+    // postfix operator
     CUDA_CALLABLE const int128_t operator++(int)
     {
-        // postfix operator
         const int128_t ret = *this;
         ++(*this);
         return ret;
     }
 
+    // prefix operator
     CUDA_CALLABLE int128_t& operator--()
     {
-        // prefix operator
         int i = 0;
         while (i < 4 && --pn[i] == 0xffffffff)
             ++i;
         return *this;
     }
 
+    // postfix operator
     CUDA_CALLABLE const int128_t operator--(int)
     {
-        // postfix operator
         const int128_t ret = *this;
         --(*this);
         return ret;
@@ -328,7 +305,7 @@ public:
 
     CUDA_CALLABLE friend inline bool operator==(const int128_t& a, const int128_t& b)
     {
-        for(unsigned i = 0; i < 3; ++i)
+        for(unsigned i = 0; i < 4; ++i)
         {
             if(a.pn[i] != b.pn[i])
                 return false;
@@ -429,15 +406,20 @@ public:
      */
     CUDA_CALLABLE inline unsigned bits() const
     {
-        if(pn[3])
-            return 129 - nlz(pn[3]);
-        if(pn[2])
-            return 97 - nlz(pn[2]);
-        if(pn[1])
-            return 65 - nlz(pn[1]);
-        if(pn[0])
-            return 33 - nlz(pn[0]);
+        uint64_t *tmp = (uint64_t *)pn;
+#ifdef __CUDA_ARCH__
+        if(tmp[1])
+            return 129 - __clzll(tmp[1]);
+        if(tmp[0])
+            return 65 - __clzll(tmp[0]);
         return 0;
+#else
+        if(tmp[1])
+            return 129 - __builtin_clzll(tmp[1]);
+        if(tmp[0])
+            return 65 - __builtin_clzll(tmp[0]);
+        return 0;
+#endif
     }
 
     __host__ const int128_t& random( const int128_t &mod );
@@ -522,16 +504,16 @@ int128_t& int128_t::operator*=(const int128_t& b)
 
     uint64_t n = 0;
     
-    n = a.pn[0] + (uint64_t)pn[0] * b.pn[0];
+    n = (uint64_t)pn[0] * b.pn[0];
     a.pn[0] = n & 0xffffffff;
 
-    n = (n >> 32) + a.pn[1] + (uint64_t)pn[0] * b.pn[1];
+    n = (n >> 32) + (uint64_t)pn[0] * b.pn[1];
     a.pn[1] = n & 0xffffffff;
 
-    n = (n >> 32) + a.pn[2] + (uint64_t)pn[0] * b.pn[2];
+    n = (n >> 32) + (uint64_t)pn[0] * b.pn[2];
     a.pn[2] = n & 0xffffffff;
 
-    n = (n >> 32) + a.pn[3] + (uint64_t)pn[0] * b.pn[3];
+    n = (n >> 32) + (uint64_t)pn[0] * b.pn[3];
     a.pn[3] = n & 0xffffffff;
 
 
@@ -569,7 +551,6 @@ CUDA_CALLABLE int128_t& int128_t::operator/=(const int128_t& b)
 
     int num_bits = num.bits();
     int div_bits = div.bits();
-    assert(div_bits != 0 && "Division by zero");
     
     if (div_bits > num_bits) // the result is certainly 0.
         return *this;
@@ -636,4 +617,4 @@ const int128_t& int128_t::random( const int128_t &mod )
     return *this;
 }
 
-#endif // BITCOIN_uint256_H
+#endif // _int128_H

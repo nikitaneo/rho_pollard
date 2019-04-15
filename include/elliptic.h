@@ -330,14 +330,12 @@ template<typename T>
 class Point
 {
     friend class EllipticCurve<T>;
-    T x{ 0 };
-    T y{ 0 };
+    T x;
+    T y;
 
 public:
 
-    CUDA_CALLABLE Point()
-    {
-    }
+    CUDA_CALLABLE Point() { }
 
     CUDA_CALLABLE Point(const T &x, const T &y)
         : x(x), y(y)
