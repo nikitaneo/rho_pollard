@@ -3,7 +3,43 @@
 #include <int128_t.h>
 #include <pollard.h>
 
-TEST(INT128, Simple)
+class bits10_curve : public ::testing::Test
+{
+public:
+    EllipticCurve<int128_t> ec{ 0, 7, 967 };
+    Point<int128_t> g{ 47, 19 };
+    int128_t order{ 907 };
+    int128_t m{ 505 };
+};
+
+class bits35_curve : public ::testing::Test
+{
+public:
+    EllipticCurve<int128_t> ec{ int128_t{"0x1fdc776b2"}, int128_t{"0x1b92df928"}, int128_t{"0x54f174ca1"} };
+    Point<int128_t> g{ int128_t{"0x348eb7221"}, int128_t{"0x49e2e6396"} };
+    int128_t order{"0x54f1be6b9"};
+    int128_t m{"0x2a78df35c"};
+};
+
+class bits45_curve : public ::testing::Test
+{
+public:
+    EllipticCurve<int128_t> ec{ int128_t{"0x4d074790451"}, int128_t{"0xd854b3cef28"}, int128_t{"0x1b480a4ae579"} };
+    Point<int128_t> g{ int128_t{"0xf2c89c6cbd5"}, int128_t{"0x34cb9515c4e"} };
+    int128_t order{"0x1b480a938913"};
+    int128_t m{"0xda40549c489"};
+};
+
+class bits55_curve : public ::testing::Test
+{
+public:
+    EllipticCurve<int128_t> ec{ 0, int128_t{"0x19785be46bfd52"}, int128_t{"0x6151f5f993b467"} };
+    Point<int128_t> g{ int128_t{"0x1e4d05e577096e"}, int128_t{"0xfd69cab66a1c"} };
+    int128_t order{"0x6151f60b0f7219"};
+    int128_t m{"0x30a8fb0587b90c"};
+};
+
+TEST(INT128, arithmetics)
 {
     int128_t a = -5;
     int128_t b = 10;
@@ -35,7 +71,6 @@ TEST(INT128, Simple)
     ASSERT_EQ(b / 2, 5);
     ASSERT_EQ(b / 2 * 2, 10);
     ASSERT_EQ(b % 2, 1);
-    //ASSERT_EQ(a % 3, -2);
 
     int128_t c("0xdb7c2abf62e35e668076bead2088");
     int128_t d("0x659ef8ba043916eede8911702b22");
@@ -48,21 +83,13 @@ TEST(INT128, Simple)
     ASSERT_EQ(c / d, 2);
 }
 
-TEST(Detail, EGCD)
-{
-    int128_t a = 612, b = 342, x = 0, y = 0;
-    ASSERT_EQ(detail::EGCD(a, b, x, y), 18);
-    ASSERT_EQ(x, -5);
-    ASSERT_EQ(y, 9);
-}
-
-TEST(Detail, Inverse)
+TEST(Detail, inverse)
 {
     int128_t a = 4, b = 101;
     ASSERT_EQ(detail::invmod(a, b) * a % b, 1);
 }
 
-TEST(ELLIPTIC_CURVE, teske)
+TEST(Detail, teske)
 {
     int128_t p = 967;
     int128_t a = 0;
@@ -98,142 +125,65 @@ TEST(ELLIPTIC_CURVE, teske)
     }
 }
 
-TEST(ELLIPTIC_CURVE, bits10_cpu)
+TEST_F(bits10_curve, cpu)
 {
-    int128_t p = 967;
-    int128_t a = 0;
-    int128_t b = 7;
-
-    EllipticCurve<int128_t> ec(a, b, p);
-    Point<int128_t> P(47, 19);
-    int128_t order = 907;
-
-    int128_t m = 505;
-    auto res = cpu::rho_pollard<int128_t>(ec.mul(m, P), P, order, ec);
+    auto res = cpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
     ASSERT_EQ(res.first, m);
 }
 
-TEST(ELLIPTIC_CURVE, bits10_gpu)
+TEST_F(bits10_curve, gpu)
 {
-    int128_t p = 967;
-    int128_t a = 0;
-    int128_t b = 7;
-
-    EllipticCurve<int128_t> ec(a, b, p);
-    Point<int128_t> P(47, 19);
-    int128_t order = 907;
-
-    int128_t m = 505;
-    auto res = gpu::rho_pollard<int128_t>(ec.mul(m, P), P, order, ec);
+    auto res = gpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
     ASSERT_EQ(res.first, m);
 }
 
-
-TEST(ELLIPTIC_CURVE, bits35_cpu)
+TEST_F(bits35_curve, cpu)
 {
-    int128_t p("0x54f174ca1");
-
-    int128_t a("0x1fdc776b2");
-    int128_t b("0x1b92df928");
-
-    EllipticCurve<int128_t> ec(a, b, p);
-    Point<int128_t> g(int128_t("0x348eb7221"), int128_t("0x49e2e6396"));
-    int128_t g_order("0x54f1be6b9");
-
-    int128_t m = g_order / 2;
-    Point<int128_t> h = ec.mul(m, g);
-
-    ASSERT_EQ(ec.mul(g_order, g), Point<int128_t>(0, 0));
-    auto result = cpu::rho_pollard<int128_t>(h, g, g_order, ec);
+    auto result = cpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
     ASSERT_EQ(result.first, m);
 
     std::cout << "[bits35_cpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
 }
 
-TEST(ELLIPTIC_CURVE, bits35_gpu)
+TEST_F(bits35_curve, gpu)
 {
-    int128_t p("0x54f174ca1");
-
-    int128_t a("0x1fdc776b2");
-    int128_t b("0x1b92df928");
-
-    EllipticCurve<int128_t> ec(a, b, p);
-    Point<int128_t> g(int128_t("0x348eb7221"), int128_t("0x49e2e6396"));
-    int128_t g_order("0x54f1be6b9");
-
-    int128_t m = g_order / 2;
-    Point<int128_t> h = ec.mul(m, g);
-
-    ASSERT_EQ(ec.mul(g_order, g), Point<int128_t>(0, 0));
-    auto result = gpu::rho_pollard<int128_t>(h, g, g_order, ec);
+    auto result = gpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
     ASSERT_EQ(result.first, m);
 
     std::cout << "[bits35_gpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
 }
 
-/*
-TEST(ELLIPTIC_CURVE, bits45_cpu)
+TEST_F(bits45_curve, cpu)
 {
-    int128_t p("0x1b480a4ae579");
-
-    int128_t a("0x4d074790451");
-    int128_t b("0xd854b3cef28");
-
-    EllipticCurve<int128_t> ec(a, b, p);
-    Point<int128_t> g(int128_t("0xf2c89c6cbd5"), int128_t("0x34cb9515c4e"));
-    int128_t g_order("0x1b480a938913");
-
-    int128_t m("0xc");
-    Point<int128_t> h = ec.mul(m, g);
-
-    ASSERT_EQ(ec.mul(g_order, g), Point<int128_t>(0, 0));
-    auto result = cpu::rho_pollard<int128_t>(h, g, g_order, ec);
+    auto result = cpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
     ASSERT_EQ(result.first, m);
 
     std::cout << "[bits45_cpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
 }
 
-TEST(ELLIPTIC_CURVE, bits45_gpu)
+TEST_F(bits45_curve, gpu)
 {
-    int128_t p("0x1b480a4ae579");
-
-    int128_t a("0x4d074790451");
-    int128_t b("0xd854b3cef28");
-
-    EllipticCurve<int128_t> ec(a, b, p);
-    Point<int128_t> g(int128_t("0xf2c89c6cbd5"), int128_t("0x34cb9515c4e"));
-    int128_t g_order("0x1b480a938913");
-
-    int128_t m("0xc");
-    Point<int128_t> h = ec.mul(m, g);
-
-    ASSERT_EQ(ec.mul(g_order, g), Point<int128_t>(0, 0));
-    auto result = gpu::rho_pollard<int128_t>(h, g, g_order, ec);
+    auto result = gpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
     ASSERT_EQ(result.first, m);
 
     std::cout << "[bits45_gpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
 }
-*/
 
-/*
-TEST(ELLIPTIC_CURVE, sec112r1)
+TEST_F(bits55_curve, cpu)
 {
-    int128_t p("0xdb7c2abf62e35e668076bead208b");
+    auto result = cpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
+    ASSERT_EQ(result.first, m);
 
-    int128_t a("0xdb7c2abf62e35e668076bead2088");
-    int128_t b("0x659ef8ba043916eede8911702b22");
-
-    EllipticCurve<int128_t> ec(a, b, p);
-    Point<int128_t> g(int128_t("0x9487239995a5ee76b55f9c2f098"), int128_t("0xa89ce5af8724c0a23e0e0ff77500"));
-    int128_t g_order("0xDB7C2ABF62E35E7628DFAC6561C5");
-    Point<int128_t> h(int128_t("0x45cf81634b4ca4c6aac505843b94"), int128_t("0xbda8eea7a5004255fa03c48d4ae8"));
-
-    int128_t m("0xf6893de509504e9be7e85b7ae3b");
-    ASSERT_EQ(ec.mul(m, g), h);
-    ASSERT_EQ(ec.mul(g_order, g), Point<int128_t>(0, 0));
-    ASSERT_EQ(cpu::rho_pollard<int128_t>(h, g, g_order, ec), m);
+    std::cout << "[bits55_cpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
 }
-*/
+
+TEST_F(bits55_curve, gpu)
+{
+    auto result = gpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
+    ASSERT_EQ(result.first, m);
+
+    std::cout << "[bits55_gpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
+}
 
 int main(int argc, char ** argv)
 {

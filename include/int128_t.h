@@ -300,8 +300,8 @@ public:
     CUDA_CALLABLE friend inline const int128_t operator&(const int128_t& a, const int128_t& b) { return int128_t(a) &= b; }
     CUDA_CALLABLE friend inline uint32_t operator&(const int128_t& a, const uint32_t b) { return a.pn[0] & b; }
     CUDA_CALLABLE friend inline const int128_t operator^(const int128_t& a, const int128_t& b) { return int128_t(a) ^= b; }
-    CUDA_CALLABLE friend inline const int128_t operator>>(const int128_t& a, int shift) { return int128_t(a) >>= shift; }
-    CUDA_CALLABLE friend inline const int128_t operator<<(const int128_t& a, int shift) { return int128_t(a) <<= shift; }
+    CUDA_CALLABLE friend inline const int128_t operator>>(const int128_t& a, unsigned shift) { return int128_t(a) >>= shift; }
+    CUDA_CALLABLE friend inline const int128_t operator<<(const int128_t& a, unsigned shift) { return int128_t(a) <<= shift; }
 
     CUDA_CALLABLE friend inline bool operator==(const int128_t& a, const int128_t& b)
     {

@@ -34,70 +34,29 @@ CUDA_CALLABLE T mulmod(const T &A, const T &B, const T &mod)
     return res; 
 }
 
-template<typename T>
-CUDA_CALLABLE T ToMont(const T &A, const T &mod)
-{
-    // for module 907, B = 2, n = 10
-    return (A << 10) % mod;
-} 
-
-template<typename T>
-CUDA_CALLABLE T FromMont(const T &A, const T &mod)
-{
-    // for module 907, B = 2, n = 10
-    return (A >> 10) % mod;
-} 
-
-// A and B should be in Montgomery representation
-template<typename T>
-CUDA_CALLABLE T MontProd(const T &A, const T &B, const T &mod)
-{
-    return 0;
-} 
-
-template<typename T>
-CUDA_CALLABLE T EGCD(const T &a, const T &b, T &u, T &v)
-{
-    u = 1;
-    v = 0;
-    T g = a;
-    T u1 = 0;
-    T v1 = 1;
-    T g1 = b;
-    while( g1 != 0 )
-    {
-        T q = g / g1; // Integer divide
-        T t1 = u - q * u1;
-        T t2 = v - q * v1;
-        T t3 = g - q * g1;
-        u = u1;
-        v = v1;
-        g = g1;
-        u1 = t1;
-        v1 = t2;
-        g1 = t3;
-    }
-
-    return g;
-}
-
 // Solve linear congruence equation x * z == 1 (mod n) for z
 template<typename T>
 CUDA_CALLABLE T invmod(const T &x, const T &n)
 {
-    T X = x;
-    T u, v, g, z;
-    g = EGCD(X, n, u, v);
-    if(g != 1)
+    T u = 1, g = x;
+    T u1 = 0, g1 = n;
+    T q, t1, t2;
+    while( g1 != 0 )
     {
-        z = 0;
+        q = g / g1;
+        t1 = u - q * u1;
+        t2 = g - q * g1;
+        u = u1;
+        g = g1;
+        u1 = t1;
+        g1 = t2;
     }
-    else
-    {
-        z = u % n;
-    }
-    return z.isLessZero() ? z + n : z;
+
+    g = u % n;
+
+    return g.isLessZero() ? g + n : g;
 }
+
 } // namespace detail
 
 template <typename T>
@@ -113,7 +72,7 @@ class FiniteFieldElement
         else
             i_ = i;
 
-        if (i.isLessZero())
+        if(i.isLessZero())
         {
             i_ += P;
         }
@@ -209,12 +168,17 @@ class FiniteFieldElement
 
     CUDA_CALLABLE friend FiniteFieldElement<T> operator*(const T &n, const FiniteFieldElement<T> &rhs)
     {
-        return FiniteFieldElement<T>(n * rhs.i_, rhs.P);
+        return FiniteFieldElement<T>(detail::mulmod(n, rhs.i_, rhs.P), rhs.P);
     }
 
     CUDA_CALLABLE friend FiniteFieldElement<T> operator*(const FiniteFieldElement<T> &lhs, const FiniteFieldElement<T> &rhs)
     {
         return FiniteFieldElement<T>(detail::mulmod(lhs.i_, rhs.i_, rhs.P), rhs.P);
+    }
+
+    CUDA_CALLABLE friend FiniteFieldElement<T> operator<<(const FiniteFieldElement<T>& lhs, unsigned shift)
+    {
+        return FiniteFieldElement<T>( lhs.i_ << shift, lhs.P );
     }
 };
 
@@ -250,7 +214,7 @@ class EllipticCurve
     CUDA_CALLABLE void addDouble(const T &m, Point<T> &p) const
     {
         Point<T> r = p;
-        for (T n = 0; n < m; ++n)
+        for(T n = 0; n < m; ++n)
         {
             r = add(r, r); // doubling step
         }
@@ -274,19 +238,17 @@ class EllipticCurve
         
         ffe_t xR(0, P), yR(0, P);
         ffe_t x1(lhs.x, P), y1(lhs.y, P), x2(rhs.x, P), y2(rhs.y, P), s(0, P); 
-        if (x1 == x2 && y1 == y2 && y1 != 0 ) // P == Q, doubling
+        if(x1 == x2 && y1 == y2 && y1 != 0 ) // P == Q, doubling
         {
-            ffe_t tmp = 2 * y1;
-            s = (3 * detail::mulmod(x1.i(), x1.i(), P) + ffe_t(a, P)) / (2 * y1);
-            xR = s * s - 2 * x1;
-            yR = -y1 + s * (x1 - xR);
+            s = (3 * x1 * x1 + ffe_t(a, P)) / (y1 << 1);
+            xR = s * s - (x1 << 1);
         }
         else
         {
             s = (y1 - y2) / (x1 - x2);
             xR = s * s - x1 - x2;
-            yR = -y1 + s * (x1 - xR);
         }
+        yR = -y1 + s * (x1 - xR);
 
         return Point<T>(xR, yR);
     }

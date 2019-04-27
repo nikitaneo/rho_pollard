@@ -239,9 +239,12 @@ rho_pollard(const Point<T> &Q,
         cudaMemcpy((void *)X2_device, (const void*)X2_host, sizeof(X2_host), cudaMemcpyHostToDevice);
 
         int found_idx = -1;
-        int num_iter = 0;
         cudaMemcpyToSymbol(found_idx_d, &found_idx, sizeof(int));
+
+#ifdef DEBUG
+        int num_iter = 0;
         cudaMemcpyToSymbol(num_iter_d, &num_iter, sizeof(int));
+#endif
         // kerner invocation here
         auto before = std::chrono::system_clock::now();
         rho_pollard_kernel<<<THREADS / THREADS_PER_BLOCK, THREADS_PER_BLOCK>>>(X1_device, X2_device,
@@ -249,7 +252,10 @@ rho_pollard(const Point<T> &Q,
         cudaDeviceSynchronize();
         auto after = std::chrono::system_clock::now();
         cudaMemcpyFromSymbol(&found_idx, found_idx_d, sizeof(found_idx), 0, cudaMemcpyDeviceToHost);
+
+#ifdef DEBUG
         cudaMemcpyFromSymbol(&num_iter, num_iter_d, sizeof(num_iter), 0, cudaMemcpyDeviceToHost);
+#endif
 
         unsigned long long time = std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count();
         iters_per_sec = (num_iter + 0.0) / time * 1000;
