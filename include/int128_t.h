@@ -291,7 +291,12 @@ public:
         return pn[3] & 0x80000000;
     }
 
-    CUDA_CALLABLE friend inline const int128_t operator%(const int128_t& a, const int128_t& b) { return a - b * ( a / b ); }
+    CUDA_CALLABLE friend inline const int128_t operator%(const int128_t& a, const int128_t& b)
+    {
+        if(a >= 0 && a < b) return a;
+        return a - b * ( a / b );
+    }
+
     CUDA_CALLABLE friend inline const int128_t operator+(const int128_t& a, const int128_t& b) { return int128_t(a) += b; }
     CUDA_CALLABLE friend inline const int128_t operator-(const int128_t& a, const int128_t& b) { return int128_t(a) -= b; }
     CUDA_CALLABLE friend inline const int128_t operator*(const int128_t& a, const int128_t& b) { return int128_t(a) *= b; }
@@ -423,6 +428,35 @@ public:
     }
 
     __host__ const int128_t& random( const int128_t &mod );
+
+    // Works for values greater then 0
+    CUDA_CALLABLE void div(const int128_t &a, const int128_t &b)
+    {
+        memset(pn, 0, sizeof(pn));
+
+        int128_t num = a;
+        int128_t div = b;
+
+        int num_bits = num.bits();
+        int div_bits = div.bits();
+        
+        if (div_bits > num_bits) // the result is certainly 0.
+            return;
+        
+        int shift = num_bits - div_bits;
+        div <<= shift; // shift so that div and num align.
+        
+        while(shift >= 0)
+        {
+            if (num >= div)
+            {
+                num -= div;
+                pn[shift >> 5] |= (1 << (shift & 31)); // set a bit of the result.
+            }
+            div >>= 1; // shift back.
+            --shift;
+        }
+    }
 };
 
 CUDA_CALLABLE int128_t& int128_t::operator<<=(unsigned int shift)

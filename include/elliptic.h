@@ -35,15 +35,35 @@ CUDA_CALLABLE T mulmod(const T &A, const T &B, const T &mod)
 }
 
 // Solve linear congruence equation x * z == 1 (mod n) for z
-template<typename T>
-CUDA_CALLABLE T invmod(const T &x, const T &n)
+CUDA_CALLABLE int128_t invmod(const int128_t &x, const int128_t &n, int128_t &buf)
 {
-    T u = 1, g = x;
-    T u1 = 0, g1 = n;
-    T q, t1, t2;
+    int128_t u = 1, g = x;
+    int128_t u1 = 0, g1 = n;
+    int128_t t1, t2;
     while( g1 != 0 )
     {
-        q = g / g1;
+        buf.div(g, g1);
+        t1 = u - buf * u1;
+        t2 = g - buf * g1;
+        u = u1;
+        g = g1;
+        u1 = t1;
+        g1 = t2;
+    }
+
+    buf = u % n;
+
+    return buf.isLessZero() ? buf + n : buf;
+}
+
+CUDA_CALLABLE int128_t invmod(const int128_t &x, const int128_t &n)
+{
+    int128_t u = 1, g = x;
+    int128_t u1 = 0, g1 = n;
+    int128_t t1, t2, q;
+    while( g1 != 0 )
+    {
+        q.div(g, g1);
         t1 = u - q * u1;
         t2 = g - q * g1;
         u = u1;
@@ -52,9 +72,9 @@ CUDA_CALLABLE T invmod(const T &x, const T &n)
         g1 = t2;
     }
 
-    g = u % n;
+    q = u % n;
 
-    return g.isLessZero() ? g + n : g;
+    return q.isLessZero() ? q + n : q;
 }
 
 } // namespace detail
@@ -96,9 +116,9 @@ class FiniteFieldElement
     }
 
     // access "raw" integer
-    CUDA_CALLABLE T i() const { return i_; }
+    CUDA_CALLABLE const T& i() const { return i_; }
 
-    CUDA_CALLABLE T p() const { return P; }
+    CUDA_CALLABLE const T& p() const { return P; }
 
     CUDA_CALLABLE operator T() { return i_; }
 
@@ -245,12 +265,45 @@ class EllipticCurve
         }
         else
         {
-            s = (y1 - y2) / (x1 - x2);
+            s = (y1 - y2) * ffe_t(detail::invmod((x1 - x2).i(), P), P);
             xR = s * s - x1 - x2;
         }
         yR = -y1 + s * (x1 - xR);
 
         return Point<T>(xR, yR);
+    }
+
+    CUDA_CALLABLE void add(Point<T> &lhs, const Point<T> &rhs, T &buf) const
+    {
+        if(lhs.x == 0 && lhs.y == 0)
+        {
+            lhs = rhs;
+        }
+        else if(rhs.x == 0 && rhs.y == 0)
+        {
+            // do nothing
+        }
+        else if(lhs.y == (-rhs.y + P) && lhs.x == rhs.x)
+        {
+            lhs = Point<T>(0, 0);
+        }
+        else
+        {
+            ffe_t xR(0, P), yR(0, P);
+            ffe_t x1(lhs.x, P), y1(lhs.y, P), x2(rhs.x, P), y2(rhs.y, P), s(0, P); 
+            if(x1 == x2 && y1 == y2 && y1 != 0 ) // P == Q, doubling
+            {
+                s = (3 * x1 * x1 + ffe_t(a, P)) / (y1 << 1);
+                xR = s * s - (x1 << 1);
+            }
+            else
+            {
+                s = (y1 - y2) * ffe_t(detail::invmod((x1 - x2).i(), P, buf), P);
+                xR = s * s - x1 - x2;
+            }
+            lhs.y = (-y1 + s * (x1 - xR)).i();
+            lhs.x = xR.i();
+        }
     }
 
     CUDA_CALLABLE Point<T> mul(const T &k, const Point<T> &rhs) const
@@ -317,9 +370,9 @@ public:
         return *this;
     }
 
-    CUDA_CALLABLE T getX() const { return x; }
+    CUDA_CALLABLE const T& getX() const { return x; }
 
-    CUDA_CALLABLE T getY() const { return y; }
+    CUDA_CALLABLE const T& getY() const { return y; }
 
     CUDA_CALLABLE friend bool operator==(const Point &lhs, const Point &rhs)
     {

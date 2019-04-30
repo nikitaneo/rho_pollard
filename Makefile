@@ -6,10 +6,10 @@ INCLUDE=-I /usr/local/include/gtest -I include
 all: opt
 
 opt: test/test.cu
-	$(CC) test/test.cu -o bin/test.out -O3 $(LDFLAGS) $(CFLAGS) $(INCLUDE)
+	$(CC) test/test.cu -o bin/test -O3 $(LDFLAGS) $(CFLAGS) $(INCLUDE)
 
 debug: test/test.cu
-	$(CC) test/test.cu -o bin/test.out -O0 -g -G -lineinfo $(LDFLAGS) $(CFLAGS) $(INCLUDE)
+	$(CC) test/test.cu -o bin/test_g -O0 -g -G -lineinfo $(LDFLAGS) $(CFLAGS) $(INCLUDE)
 
 clean:
 	rm -rf bin/*

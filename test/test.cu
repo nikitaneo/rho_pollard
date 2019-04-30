@@ -128,62 +128,70 @@ TEST(Detail, teske)
 TEST_F(bits10_curve, cpu)
 {
     auto res = cpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
-    ASSERT_EQ(res.first, m);
+    ASSERT_EQ(std::get<0>( res ), m);
 }
 
 TEST_F(bits10_curve, gpu)
 {
     auto res = gpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
-    ASSERT_EQ(res.first, m);
+    ASSERT_EQ(std::get<0>( res ), m);
 }
 
 TEST_F(bits35_curve, cpu)
 {
     auto result = cpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
-    ASSERT_EQ(result.first, m);
+    ASSERT_EQ(std::get<0>( result ), m);
 
-    std::cout << "[bits35_cpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
+    std::cout << "[bits35_cpu] Average number of rho-pollard iterations per second: " << std::get<1>( result )
+        << ". Calculation time: " << std::get<2>( result ) << std::endl;
 }
 
 TEST_F(bits35_curve, gpu)
 {
     auto result = gpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
-    ASSERT_EQ(result.first, m);
+    ASSERT_EQ(std::get<0>( result ), m);
 
-    std::cout << "[bits35_gpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
+    std::cout << "[bits35_gpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
+        << ". Calculation time: " << std::get<2>( result ) << std::endl;
 }
 
+/*
 TEST_F(bits45_curve, cpu)
 {
     auto result = cpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
-    ASSERT_EQ(result.first, m);
+    ASSERT_EQ(std::get<0>( result ), m);
 
-    std::cout << "[bits45_cpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
+    std::cout << "[bits45_cpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
+        << ". Calculation time: " << std::get<2>( result ) << std::endl;
 }
 
 TEST_F(bits45_curve, gpu)
 {
     auto result = gpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
-    ASSERT_EQ(result.first, m);
+    ASSERT_EQ(std::get<0>( result ), m);
 
-    std::cout << "[bits45_gpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
+    std::cout << "[bits45_gpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
+        << ". Calculation time: " << std::get<2>( result ) << std::endl;
 }
 
 TEST_F(bits55_curve, cpu)
 {
     auto result = cpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
-    ASSERT_EQ(result.first, m);
+    ASSERT_EQ(std::get<0>( result ), m);
 
-    std::cout << "[bits55_cpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
+    std::cout << "[bits55_cpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
+        << ". Calculation time: " << std::get<2>( result ) << std::endl;
 }
 
 TEST_F(bits55_curve, gpu)
 {
     auto result = gpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
-    ASSERT_EQ(result.first, m);
+    ASSERT_EQ(std::get<0>( result ), m);
 
-    std::cout << "[bits55_gpu] Average number of rho-pollard iterations per second: " << result.second << std::endl;
+    std::cout << "[bits55_gpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
+        << ". Calculation time: " << std::get<2>( result ) << std::endl;
 }
+*/
 
 int main(int argc, char ** argv)
 {

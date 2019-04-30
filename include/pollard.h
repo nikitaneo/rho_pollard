@@ -27,7 +27,7 @@ inline void iteration(  Point<T> &r,
 
 // Solve Q = xP
 template<typename T>
-std::pair<T, double>
+std::tuple<T, double, unsigned long long>
 rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const EllipticCurve<T> &ec )
 {
     T c1, c2, d1, d2;
@@ -36,6 +36,7 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
     std::vector<Point<T>> R(POLLARD_SET_COUNT, P);
     
     double iters_per_sec = 0;
+    unsigned long long time = 0;
     while( true )
     {
         for(unsigned i = 0; i < POLLARD_SET_COUNT; i++)
@@ -63,8 +64,8 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
         while(X1 != X2);
         auto after = std::chrono::system_clock::now();
 
-        unsigned long long time = std::chrono::duration_cast<std::chrono::microseconds>(after - before).count();
-        iters_per_sec = (iters * 3.0) / time * 1000 * 1000;
+        time = std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count();
+        iters_per_sec = (iters * 3.0) / time * 1000;
 
         c1 = c1 % order;
         d1 = d1 % order;
@@ -87,7 +88,7 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
 
         T d_inv = detail::invmod(d, order); if(d_inv < 0) d_inv += order;
 
-        return std::make_pair((c * d_inv) % order, iters_per_sec);
+        return std::make_tuple((c * d_inv) % order, iters_per_sec, time);
     }
 }
 }   // namespace cpu
@@ -108,10 +109,11 @@ __device__ int num_iter_d = 0;
 template<typename T>
 __device__ inline void iteration(   Point<T> &r,
                                     T &c, T &d,
-                                    const EllipticCurve<T> &ec )
+                                    const EllipticCurve<T> &ec,
+                                    T &buf )
 {
     unsigned index = r.getX() & 0xF;
-    r = ec.add(r, R_const[index]);
+    ec.add(r, R_const[index], buf);
     c += a_const[index];
     d += b_const[index];
 }
@@ -127,10 +129,14 @@ __global__ void rho_pollard_kernel( Point<T> *X1,
     __shared__ T c2_sh[THREADS_PER_BLOCK];
     __shared__ T d1_sh[THREADS_PER_BLOCK];
     __shared__ T d2_sh[THREADS_PER_BLOCK];
+    __shared__ T buf[THREADS_PER_BLOCK];
+
+    __shared__ Point<T> X1_sh[THREADS_PER_BLOCK];
+    __shared__ Point<T> X2_sh[THREADS_PER_BLOCK];
 
     // initialize shared status
     if( threadIdx.x == 0 )
-        someoneFoundIt = (found_idx_d != -1);
+        someoneFoundIt = !(found_idx_d == -1);
 
     __syncthreads();
 
@@ -141,22 +147,22 @@ __global__ void rho_pollard_kernel( Point<T> *X1,
     d1_sh[threadIdx.x] = d1[idx];
     d2_sh[threadIdx.x] = d2[idx];
 
-    Point<T> X1i = X1[idx];
-    Point<T> X2i = X2[idx];
-    T &c1i = c1_sh[threadIdx.x], &c2i = c2_sh[threadIdx.x], &d1i = d1_sh[threadIdx.x], &d2i = d2_sh[threadIdx.x];
+    X1_sh[threadIdx.x] = X1[idx];
+    X2_sh[threadIdx.x] = X2[idx];
 
+    unsigned num_iter = 0;
     do
     {
-        iteration(X1i, c1i, d1i, ec);
+        iteration(X1_sh[threadIdx.x], c1_sh[threadIdx.x], d1_sh[threadIdx.x], ec, buf[threadIdx.x]);
 
-        iteration(X2i, c2i, d2i, ec);
-        iteration(X2i, c2i, d2i, ec);
+        iteration(X2_sh[threadIdx.x], c2_sh[threadIdx.x], d2_sh[threadIdx.x], ec, buf[threadIdx.x]);
+        iteration(X2_sh[threadIdx.x], c2_sh[threadIdx.x], d2_sh[threadIdx.x], ec, buf[threadIdx.x]);
 
 #ifdef DEBUG
-        atomicAdd(&num_iter_d, 1);
+        num_iter++;
 #endif
 
-        if(X1i == X2i)
+        if(X1_sh[threadIdx.x] == X2_sh[threadIdx.x])
         {
             someoneFoundIt = true;
             found_idx_d = idx;
@@ -167,22 +173,26 @@ __global__ void rho_pollard_kernel( Point<T> *X1,
             someoneFoundIt = true;
         }
     }
-    while(!someoneFoundIt);
+    while( !someoneFoundIt );
+
+#ifdef DEBUG
+    atomicAdd(&num_iter_d, num_iter);
+#endif
 
     if(found_idx_d == idx)
     {
-        X1[idx] = X1i;
-        X2[idx] = X2i;
-        c1[idx] = c1i;
-        c2[idx] = c2i;
-        d1[idx] = d1i;
-        d2[idx] = d2i;
+        X1[idx] = X1_sh[threadIdx.x];
+        X2[idx] = X2_sh[threadIdx.x];
+        c1[idx] = c1_sh[threadIdx.x];
+        c2[idx] = c2_sh[threadIdx.x];
+        d1[idx] = d1_sh[threadIdx.x];
+        d2[idx] = d2_sh[threadIdx.x];
     }
 }
 
 // Solve Q = xP
 template<typename T>
-std::pair<T, double>
+std::tuple<T, double, unsigned long long>
 rho_pollard(const Point<T> &Q,
             const Point<T> &P,
             const T &order,
@@ -209,6 +219,7 @@ rho_pollard(const Point<T> &Q,
 
     T result = 0;
     double iters_per_sec = 0;
+    unsigned long long time = 0;
     while( true )
     {
         for(unsigned i = 0; i < POLLARD_SET_COUNT; i++)
@@ -257,7 +268,7 @@ rho_pollard(const Point<T> &Q,
         cudaMemcpyFromSymbol(&num_iter, num_iter_d, sizeof(num_iter), 0, cudaMemcpyDeviceToHost);
 #endif
 
-        unsigned long long time = std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count();
+        time = std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count();
         iters_per_sec = (num_iter + 0.0) / time * 1000;
 
 #ifdef DEBUG
@@ -314,6 +325,6 @@ rho_pollard(const Point<T> &Q,
     cudaFree(X1_device);
     cudaFree(X2_device);
 
-    return std::make_pair(result, iters_per_sec);
+    return std::make_tuple(result, iters_per_sec, time);
 }
 }   // namespace gpu
