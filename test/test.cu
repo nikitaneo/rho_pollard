@@ -39,10 +39,13 @@ public:
     int128_t m{"0x30a8fb0587b90c"};
 };
 
-TEST(INT128, arithmetics)
+TEST(int128_t, arithmetics)
 {
     int128_t a = -5;
     int128_t b = 10;
+    ASSERT_EQ(b >> 1, 5);
+    ASSERT_EQ(b << 1, 20);
+    ASSERT_EQ(b << 2, 40);
     ASSERT_EQ(a + b, 5);
     ASSERT_EQ(-a, 5);
     ASSERT_EQ(-2 * a, 10);
@@ -54,9 +57,6 @@ TEST(INT128, arithmetics)
     ASSERT_EQ(-2 * b, 4 * a);
     ASSERT_EQ(b - a, 15);
     ASSERT_EQ(b * a, -50);
-    ASSERT_EQ(b >> 1, 5);
-    ASSERT_EQ(b << 1, 20);
-    ASSERT_EQ(b << 2, 40);
     ASSERT_EQ(a * 2, -10);
     ASSERT_EQ(a * (-1), 5);
     ASSERT_EQ(a < -2, false);
@@ -71,6 +71,8 @@ TEST(INT128, arithmetics)
     ASSERT_EQ(b / 2, 5);
     ASSERT_EQ(b / 2 * 2, 10);
     ASSERT_EQ(b % 2, 1);
+    ASSERT_EQ(int128_t(1) << 33, 8589934592);
+    ASSERT_EQ(int128_t(8589934592) >> 33, 1);
 
     int128_t c("0xdb7c2abf62e35e668076bead2088");
     int128_t d("0x659ef8ba043916eede8911702b22");
@@ -83,13 +85,13 @@ TEST(INT128, arithmetics)
     ASSERT_EQ(c / d, 2);
 }
 
-TEST(Detail, inverse)
+TEST(detail, inverse)
 {
     int128_t a = 4, b = 101;
     ASSERT_EQ(detail::invmod(a, b) * a % b, 1);
 }
 
-TEST(Detail, teske)
+TEST(detail, point_addition)
 {
     int128_t p = 967;
     int128_t a = 0;
@@ -100,10 +102,29 @@ TEST(Detail, teske)
     int128_t order = 907;
 
     Point<int128_t> O(0, 0);
-    assert(ec.mul(order, P) == O);
+    ASSERT_EQ(ec.add(P, O), P);
+
+    Point<int128_t> P2 = ec.add(P, P);
+    ASSERT_EQ(P2, Point<int128_t>(895, 656));
+
+    ASSERT_EQ(ec.add(P, P2), Point<int128_t>(57, 774));
+}
+
+TEST(detail, teske)
+{
+    int128_t p = 967;
+    int128_t a = 0;
+    int128_t b = 7;
+
+    EllipticCurve<int128_t> ec(a, b, p);
+    Point<int128_t> P(47, 19);
+    int128_t order = 907;
+
+    Point<int128_t> O(0, 0);
+    ASSERT_EQ(ec.mul(order, P), O);
 
     Point<int128_t> Q = ec.mul(3, P);
-    assert(ec.mul(order, Q) == O);
+    ASSERT_EQ(ec.mul(order, Q), O);
 
     int128_t c; c.random(order);
     int128_t d = 0;
@@ -120,8 +141,8 @@ TEST(Detail, teske)
         int128_t d1 = d + b; // if(d1 > order) d1 -= order;
         auto P1 = ec.mul(c1, P); auto P2 = ec.mul(d1, Q);
         auto tmp = ec.add(P1, P2);
-        assert( tmp == T1 );
-        assert( ec.check(tmp) );
+        ASSERT_EQ(tmp, T1);
+        ASSERT_EQ(ec.check(tmp), true);
     }
 }
 

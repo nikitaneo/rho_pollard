@@ -293,7 +293,6 @@ public:
 
     CUDA_CALLABLE friend inline const int128_t operator%(const int128_t& a, const int128_t& b)
     {
-        if(a >= 0 && a < b) return a;
         return a - b * ( a / b );
     }
 
@@ -310,12 +309,10 @@ public:
 
     CUDA_CALLABLE friend inline bool operator==(const int128_t& a, const int128_t& b)
     {
-        for(unsigned i = 0; i < 4; ++i)
-        {
-            if(a.pn[i] != b.pn[i])
-                return false;
-        }
-        return true;
+        if( (a.pn[0] == b.pn[0]) && (a.pn[1] == b.pn[1]) && (a.pn[2] == b.pn[2]) && (a.pn[3] == b.pn[3]) )
+            return true;
+        else 
+            return false;
     }
 
     CUDA_CALLABLE friend inline bool operator!=(const int128_t& a, const int128_t& b) { return !(a == b); }
@@ -415,15 +412,16 @@ public:
 #ifdef __CUDA_ARCH__
         if(tmp[1])
             return 129 - __clzll(tmp[1]);
-        if(tmp[0])
+        else if(tmp[0])
             return 65 - __clzll(tmp[0]);
-        return 0;
+        else 
+            return 0;
 #else
         if(tmp[1])
             return 129 - __builtin_clzll(tmp[1]);
-        if(tmp[0])
+        else if(tmp[0])
             return 65 - __builtin_clzll(tmp[0]);
-        return 0;
+        else return 0;
 #endif
     }
 
@@ -436,19 +434,16 @@ public:
 
         int128_t num = a;
         int128_t div = b;
-
-        int num_bits = num.bits();
-        int div_bits = div.bits();
         
-        if (div_bits > num_bits) // the result is certainly 0.
+        int shift = num.bits() - div.bits();
+        if(shift < 0)
             return;
-        
-        int shift = num_bits - div_bits;
+
         div <<= shift; // shift so that div and num align.
         
         while(shift >= 0)
         {
-            if (num >= div)
+            if(num >= div)
             {
                 num -= div;
                 pn[shift >> 5] |= (1 << (shift & 31)); // set a bit of the result.
@@ -461,115 +456,102 @@ public:
 
 CUDA_CALLABLE int128_t& int128_t::operator<<=(unsigned int shift)
 {
-    int128_t a(*this);
-    memset(pn, 0, sizeof(pn));
-    int k = shift >> 5;
-    shift = shift % 32;
+    if(shift == 0)
+        return *this;
 
-    unsigned t = 32 - shift;
+    const int k = shift >> 5;
 
-    if (k < 4)
+    if(k != 0)
     {
-        pn[k] |= (a.pn[0] << shift);
-
-        if (k < 3)
+        for(int i = 3; i >= k; --i)
         {
-            if(shift)
-                pn[k + 1] |= (a.pn[0] >> t);
-            pn[k + 1] |= (a.pn[1] << shift);
-
-            if (k < 2)
-            {
-                if(shift)
-                    pn[k + 2] |= (a.pn[1] >> t);
-                pn[k + 2] |= (a.pn[2] << shift);
-
-                if (k == 0)
-                {
-                    if(shift)
-                        pn[k + 3] |= (a.pn[2] >> t);
-                    pn[k + 3] |= (a.pn[3] << shift);
-                }
-            }
+            pn[i] = pn[i - k];
         }
+        memset(pn, 0, k);
     }
+
+    shift = shift % 32;
+    if(shift == 0)
+        return *this;
+
+    unsigned begin = 0, end = 0;
+    for(int i = k; i < 4; ++i)
+    {
+        begin = pn[i];
+        pn[i] = (begin << shift) | (end >> (32 - shift));
+        end = begin;
+    }
+
     return *this;
 }
 
 CUDA_CALLABLE int128_t& int128_t::operator>>=(unsigned int shift)
 {
-    int128_t a(*this);
-    memset(pn, 0, sizeof(pn));
-    int k = shift >> 5;
+    if(shift == 0)
+        return *this;
+
+    const int k = shift >> 5;
+    if(k != 0)
+    {
+        for(int i = 0; i < 4 - k; ++i)
+        {
+            pn[i] = pn[i + k];
+        }
+        memset(pn + k, 0, 4 - k);
+    }
+
     shift = shift % 32;
+    if(shift == 0)
+        return *this;
 
-    unsigned t = 32 - shift;
-
-    if (k == 0)
+    unsigned begin = 0, end = 0;
+    for(int i = 3 - k; i >= 0; --i)
     {
-        pn[0] |= (a.pn[0] >> shift);
-        if(shift)
-            pn[0] |= (a.pn[1] << t);
+        begin = pn[i];
+        pn[i] = (begin >> shift) | (end << (32 - shift));
+        end = begin;
     }
-
-    if (k <= 1)
-    {
-        pn[1 - k] |= (a.pn[1] >> shift);
-        if(shift)
-            pn[1 - k] |= (a.pn[2] << t);
-    }
-
-    if (k <= 2)
-    {
-        pn[2 - k] |= (a.pn[2] >> shift);
-        if(shift)
-            pn[2 - k] |= (a.pn[3] << t);            
-    }
-
-    if (k <= 3)
-        pn[3 - k] |= (a.pn[3] >> shift);
 
     return *this;
 }
 
 int128_t& int128_t::operator*=(const int128_t& b)
 {
-    int128_t a;
+    int128_t a; // need to make "in place"
 
-    uint64_t n = 0;
-    
-    n = (uint64_t)pn[0] * b.pn[0];
-    a.pn[0] = n & 0xffffffff;
+    uint64_t n = 0, tmp = (uint64_t)pn[0];
+    n = tmp * b.pn[0];
+    a.pn[0] = n;
 
-    n = (n >> 32) + (uint64_t)pn[0] * b.pn[1];
-    a.pn[1] = n & 0xffffffff;
+    n = (n >> 32) + tmp * b.pn[1];
+    a.pn[1] = n;
 
-    n = (n >> 32) + (uint64_t)pn[0] * b.pn[2];
-    a.pn[2] = n & 0xffffffff;
+    n = (n >> 32) + tmp * b.pn[2];
+    a.pn[2] = n;
 
-    n = (n >> 32) + (uint64_t)pn[0] * b.pn[3];
-    a.pn[3] = n & 0xffffffff;
+    n = (n >> 32) + tmp * b.pn[3];
+    a.pn[3] = n;
 
+    tmp = (uint64_t)pn[1];
+    n = a.pn[1] + tmp * b.pn[0];
+    a.pn[1] = n;
 
-    n = a.pn[1] + (uint64_t)pn[1] * b.pn[0];
-    a.pn[1] = n & 0xffffffff;
+    n = (n >> 32) + a.pn[2] + tmp * b.pn[1];
+    a.pn[2] = n;
 
-    n = (n >> 32) + a.pn[2] + (uint64_t)pn[1] * b.pn[1];
-    a.pn[2] = n & 0xffffffff;
+    n = (n >> 32) + a.pn[3] + tmp * b.pn[2];
+    a.pn[3] = n;
 
-    n = (n >> 32) + a.pn[3] + (uint64_t)pn[1] * b.pn[2];
-    a.pn[3] = n & 0xffffffff;
+    tmp = (uint64_t)pn[2];
+    n = a.pn[2] + tmp * b.pn[0];
+    a.pn[2] = n;
 
-
-    n = a.pn[2] + (uint64_t)pn[2] * b.pn[0];
-    a.pn[2] = n & 0xffffffff;
-
-    n = (n >> 32) + a.pn[3] + (uint64_t)pn[2] * b.pn[1];
-    a.pn[3] = n & 0xffffffff;
+    n = (n >> 32) + a.pn[3] + tmp * b.pn[1];
+    a.pn[3] = n;
 
 
     n = a.pn[3] + (uint64_t)pn[3] * b.pn[0];
-    a.pn[3] = n & 0xffffffff;
+    a.pn[3] = n;
 
     *this = a;
     return *this;
@@ -594,7 +576,7 @@ CUDA_CALLABLE int128_t& int128_t::operator/=(const int128_t& b)
     
     while(shift >= 0)
     {
-        if (num >= div)
+        if( num >= div )
         {
             num -= div;
             pn[shift >> 5] |= (1 << (shift & 31)); // set a bit of the result.
