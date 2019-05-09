@@ -212,16 +212,16 @@ public:
         uint64_t n = 0;
 
         n = uint64_t(pn[0]) + b.pn[0];
-        pn[0] = n & 0xffffffff;
+        pn[0] = n;
 
         n = (n >> 32) + pn[1] + b.pn[1];
-        pn[1] = n & 0xffffffff;
+        pn[1] = n;
 
         n = (n >> 32) + pn[2] + b.pn[2];
-        pn[2] = n & 0xffffffff;
+        pn[2] = n;
         
         n = (n >> 32) + pn[3] + b.pn[3];
-        pn[3] = n & 0xffffffff;
+        pn[3] = n;
     
         return *this;
     }
@@ -309,94 +309,53 @@ public:
 
     CUDA_CALLABLE friend inline bool operator==(const int128_t& a, const int128_t& b)
     {
-        if( (a.pn[0] == b.pn[0]) && (a.pn[1] == b.pn[1]) && (a.pn[2] == b.pn[2]) && (a.pn[3] == b.pn[3]) )
-            return true;
-        else 
-            return false;
+        return (a.pn[0] == b.pn[0]) && (a.pn[1] == b.pn[1]) && (a.pn[2] == b.pn[2]) && (a.pn[3] == b.pn[3]);
     }
 
     CUDA_CALLABLE friend inline bool operator!=(const int128_t& a, const int128_t& b) { return !(a == b); }
 
     CUDA_CALLABLE friend inline bool operator<(const int128_t& a, const int128_t& b)
     {
-        bool lhsSign = a.pn[3] & 0x80000000;
-        bool rhsSign = b.pn[3] & 0x80000000;
+        const bool lhsSign = a.isLessZero();
+        const bool rhsSign = b.isLessZero();
 
-        if( lhsSign )
+        if( lhsSign != rhsSign )
+            return lhsSign > rhsSign;
+    
+        int i = 3;
+        for(; a.pn[i] == b.pn[i] && i > 0; --i)
         {
-            if( rhsSign )
-            {
-                int i = 3;
-                while(a.pn[i] == b.pn[i] && i > 0)
-                    --i;
-
-                if(a.pn[i] > b.pn[i])
-                    return true;
-                else
-                    return false;
-            }
-            else
-                return true;
+            // do nothing;
         }
+
+        if(a.pn[i] < b.pn[i])
+            return !lhsSign;
         else
-        {
-            if( !rhsSign )
-            {
-                int i = 3;
-                while(a.pn[i] == b.pn[i] && i > 0)
-                    --i;
-
-                if(a.pn[i] < b.pn[i])
-                    return true;
-                else
-                    return false;
-            }
-            else
-                return false;
-        }
+            return lhsSign;
     }
 
     CUDA_CALLABLE friend inline bool operator>(const int128_t& a, const int128_t& b)
     {
-        bool lhsSign = a.pn[3] & 0x80000000;
-        bool rhsSign = b.pn[3] & 0x80000000;
+        const bool lhsSign = a.isLessZero();
+        const bool rhsSign = b.isLessZero();
 
-        if( lhsSign )
+        if( lhsSign != rhsSign )
+            return lhsSign < rhsSign;
+
+        int i = 3;
+        for(; a.pn[i] == b.pn[i] && i > 0; --i)
         {
-            if( rhsSign )
-            {
-                int i = 3;
-                while(a.pn[i] == b.pn[i] && i > 0)
-                    --i;
-
-                if(a.pn[i] > b.pn[i])
-                    return false;
-                else
-                    return true;
-            }
-            else
-                return false;
+            // do nothing;
         }
+
+        if(a.pn[i] > b.pn[i])
+            return !lhsSign;
         else
-        {
-            if( !rhsSign )
-            {
-                int i = 3;
-                while(a.pn[i] == b.pn[i] && i > 0)
-                    --i;
-
-                if(a.pn[i] < b.pn[i])
-                    return false;
-                else
-                    return true;
-            }
-            else
-                return true;
-        }
+            return lhsSign;
     }
 
-    CUDA_CALLABLE friend inline bool operator>=(const int128_t& a, const int128_t& b) { return a > b || a == b; }
-    CUDA_CALLABLE friend inline bool operator<=(const int128_t& a, const int128_t& b) { return a < b || a == b; }
+    CUDA_CALLABLE friend inline bool operator>=(const int128_t& a, const int128_t& b) { return !(a < b); }
+    CUDA_CALLABLE friend inline bool operator<=(const int128_t& a, const int128_t& b) { return !(a > b); }
     __host__ friend inline std::ostream& operator<<(std::ostream& out, const int128_t &a) { return out << a.GetHex(); }
 
     __host__ std::string GetHex() const;
@@ -439,17 +398,16 @@ public:
         if(shift < 0)
             return;
 
-        div <<= shift; // shift so that div and num align.
+        div <<= shift; // shift so that div and num align
         
-        while(shift >= 0)
+        for(; shift >= 0; --shift)
         {
             if(num >= div)
             {
                 num -= div;
-                pn[shift >> 5] |= (1 << (shift & 31)); // set a bit of the result.
+                pn[shift >> 5] |= (1 << (shift & 31)); // set a bit of the result
             }
-            div >>= 1; // shift back.
-            --shift;
+            div >>= 1; // shift back
         }
     }
 };
@@ -470,7 +428,7 @@ CUDA_CALLABLE int128_t& int128_t::operator<<=(unsigned int shift)
         memset(pn, 0, k);
     }
 
-    shift = shift % 32;
+    shift %= 32;
     if(shift == 0)
         return *this;
 
@@ -500,7 +458,7 @@ CUDA_CALLABLE int128_t& int128_t::operator>>=(unsigned int shift)
         memset(pn + k, 0, 4 - k);
     }
 
-    shift = shift % 32;
+    shift %= 32;
     if(shift == 0)
         return *this;
 

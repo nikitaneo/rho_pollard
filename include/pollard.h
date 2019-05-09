@@ -6,7 +6,7 @@
 
 #define POLLARD_SET_COUNT 16
 #define THREADS_PER_BLOCK 48
-#define THREADS 288
+#define THREADS 384
 #define DEBUG
 
 namespace cpu
@@ -51,7 +51,7 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
         Point<T> X1 = ec.add(ec.mul(c1, P), ec.mul(d1, Q));
         Point<T> X2 = X1;
         
-        int iters = 0;
+        unsigned long long iters = 0;
         auto before = std::chrono::system_clock::now();  
         do
         {
@@ -64,8 +64,8 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
         while(X1 != X2);
         auto after = std::chrono::system_clock::now();
 
-        time = std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count();
-        iters_per_sec = (iters * 3.0) / time * 1000;
+        time = std::chrono::duration_cast<std::chrono::seconds>(after - before).count();
+        iters_per_sec = (iters * 3.0) / time;
 
         c1 = c1 % order;
         d1 = d1 % order;
@@ -105,7 +105,7 @@ __constant__ EllipticCurve<int128_t> ec_const;
 __device__ volatile int found_idx_d = -1;
 
 #ifdef DEBUG
-__device__ int num_iter_d = 0;
+__device__ unsigned long long num_iter_d = 0;
 #endif
 
 template<typename T>
@@ -124,13 +124,10 @@ __global__ void rho_pollard_kernel( Point<T> *X1,
                                     Point<T> *X2,
                                     T *c1, T *c2, T *d1, T *d2 )
 {
-    __shared__ T c1_sh[THREADS_PER_BLOCK];
-    __shared__ T c2_sh[THREADS_PER_BLOCK];
-    __shared__ T d1_sh[THREADS_PER_BLOCK];
-    __shared__ T d2_sh[THREADS_PER_BLOCK];
-
-    __shared__ Point<T> X1_sh[THREADS_PER_BLOCK];
-    __shared__ Point<T> X2_sh[THREADS_PER_BLOCK];
+    // __shared__ T c1_sh[THREADS_PER_BLOCK];
+    // __shared__ T c2_sh[THREADS_PER_BLOCK];
+    // __shared__ T d1_sh[THREADS_PER_BLOCK];
+    // __shared__ T d2_sh[THREADS_PER_BLOCK];
 
     volatile __shared__ bool someoneFoundIt;
 
@@ -142,27 +139,27 @@ __global__ void rho_pollard_kernel( Point<T> *X1,
 
     unsigned idx = threadIdx.x + blockDim.x * blockIdx.x;
 
-    c1_sh[threadIdx.x] = c1[idx];
-    c2_sh[threadIdx.x] = c2[idx];
-    d1_sh[threadIdx.x] = d1[idx];
-    d2_sh[threadIdx.x] = d2[idx];
+    T c1_sh = c1[idx];
+    T c2_sh = c2[idx];
+    T d1_sh = d1[idx];
+    T d2_sh = d2[idx];
 
-    X1_sh[threadIdx.x] = X1[idx];
-    X2_sh[threadIdx.x] = X2[idx];
+    Point<T> X1_sh = X1[idx];
+    Point<T> X2_sh = X2[idx];
 
-    unsigned num_iter = 0;
+    unsigned long long num_iter = 0;
     do
     {
-        iteration(X1_sh[threadIdx.x], c1_sh[threadIdx.x], d1_sh[threadIdx.x], ec_const);
+        iteration(X1_sh, c1_sh, d1_sh, ec_const);
 
-        iteration(X2_sh[threadIdx.x], c2_sh[threadIdx.x], d2_sh[threadIdx.x], ec_const);
-        iteration(X2_sh[threadIdx.x], c2_sh[threadIdx.x], d2_sh[threadIdx.x], ec_const);
+        iteration(X2_sh, c2_sh, d2_sh, ec_const);
+        iteration(X2_sh, c2_sh, d2_sh, ec_const);
 
 #ifdef DEBUG
         num_iter++;
 #endif
 
-        if(X1_sh[threadIdx.x] == X2_sh[threadIdx.x])
+        if(X1_sh == X2_sh)
         {
             someoneFoundIt = true;
             found_idx_d = idx;
@@ -181,12 +178,12 @@ __global__ void rho_pollard_kernel( Point<T> *X1,
 
     if(found_idx_d == idx)
     {
-        X1[idx] = X1_sh[threadIdx.x];
-        X2[idx] = X2_sh[threadIdx.x];
-        c1[idx] = c1_sh[threadIdx.x];
-        c2[idx] = c2_sh[threadIdx.x];
-        d1[idx] = d1_sh[threadIdx.x];
-        d2[idx] = d2_sh[threadIdx.x];
+        X1[idx] = X1_sh;
+        X2[idx] = X2_sh;
+        c1[idx] = c1_sh;
+        c2[idx] = c2_sh;
+        d1[idx] = d1_sh;
+        d2[idx] = d2_sh;
     }
 }
 
@@ -236,6 +233,8 @@ rho_pollard(const Point<T> &Q,
             X2_host[i] = X1_host[i] = ec.add(ec.mul(c1_host[i], P), ec.mul(d1_host[i], Q));
         }
         
+        cudaDeviceSetCacheConfig( cudaFuncCachePreferL1 );
+        
         cudaMemcpy((void *)c1_device, (const void*)c1_host, sizeof(c1_host), cudaMemcpyHostToDevice);
         cudaMemcpy((void *)c2_device, (const void*)c2_host, sizeof(c2_host), cudaMemcpyHostToDevice);
         cudaMemcpy((void *)d1_device, (const void*)d1_host, sizeof(d1_host), cudaMemcpyHostToDevice);
@@ -255,7 +254,7 @@ rho_pollard(const Point<T> &Q,
         cudaMemcpyToSymbol(found_idx_d, &found_idx, sizeof(int));
 
 #ifdef DEBUG
-        int num_iter = 0;
+        unsigned long long num_iter = 0;
         cudaMemcpyToSymbol(num_iter_d, &num_iter, sizeof(int));
 #endif
         // kerner invocation here
@@ -270,8 +269,8 @@ rho_pollard(const Point<T> &Q,
         cudaMemcpyFromSymbol(&num_iter, num_iter_d, sizeof(num_iter), 0, cudaMemcpyDeviceToHost);
 #endif
 
-        time = std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count();
-        iters_per_sec = (num_iter + 0.0) / time * 1000;
+        time = std::chrono::duration_cast<std::chrono::seconds>(after - before).count();
+        iters_per_sec = (num_iter + 0.0) / time;
 
 #ifdef DEBUG
         cudaError_t error = cudaGetLastError();
