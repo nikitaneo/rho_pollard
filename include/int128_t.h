@@ -114,6 +114,16 @@ public:
         SetHex(str.c_str());
     }
 
+    CUDA_CALLABLE inline uint32_t hash() const
+    {
+        uint32_t hash = 0;
+        hash = (hash + (324723947 + pn[0])) ^ 93485734985;
+        hash = (hash + (324723947 + pn[1])) ^ 93485734985;
+        hash = (hash + (324723947 + pn[2])) ^ 93485734985;
+        hash = (hash + (324723947 + pn[3])) ^ 93485734985;
+        return hash;
+    }
+
     CUDA_CALLABLE const int128_t operator~() const
     {
         int128_t ret;
@@ -361,11 +371,7 @@ public:
     __host__ std::string GetHex() const;
     void SetHex(const char* psz);
 
-    /**
-     * Returns the position of the highest bit set plus one, or zero if the
-     * value is zero.
-     */
-    CUDA_CALLABLE inline unsigned bits() const
+    CUDA_CALLABLE inline unsigned bitlength() const
     {
         uint64_t *tmp = (uint64_t *)pn;
 #ifdef __CUDA_ARCH__
@@ -394,7 +400,7 @@ public:
         int128_t num = a;
         int128_t div = b;
         
-        int shift = num.bits() - div.bits();
+        int shift = num.bitlength() - div.bitlength();
         if(shift < 0)
             return;
 
@@ -523,8 +529,8 @@ CUDA_CALLABLE int128_t& int128_t::operator/=(const int128_t& b)
 
     memset(pn, 0, sizeof(pn));
 
-    int num_bits = num.bits();
-    int div_bits = div.bits();
+    int num_bits = num.bitlength();
+    int div_bits = div.bitlength();
     
     if (div_bits > num_bits) // the result is certainly 0.
         return *this;

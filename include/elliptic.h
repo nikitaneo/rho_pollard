@@ -192,6 +192,21 @@ class EllipticCurve
     {
     }
 
+    CUDA_CALLABLE const T& getA() const
+    {
+        return a;
+    }
+
+    CUDA_CALLABLE const T& getB() const
+    {
+        return b;
+    }
+
+    CUDA_CALLABLE const T& getP() const
+    {
+        return P;
+    }
+
     // core of the doubling multiplier algorithm (see below)
     // multiplies acc by m as a series of "2*acc's"
     CUDA_CALLABLE void addDouble(const T &m, Point<T> &p) const
@@ -308,6 +323,14 @@ public:
         return *this;
     }
 
+    CUDA_CALLABLE inline uint32_t hash() const
+    {
+        uint32_t hash = 0;
+        hash = (hash + (324723947 + x.hash())) ^ 93485734985;
+        hash = (hash + (324723947 + y.hash())) ^ 93485734985;
+        return hash;
+    }
+
     CUDA_CALLABLE const T& getX() const { return x; }
 
     CUDA_CALLABLE const T& getY() const { return y; }
@@ -327,5 +350,19 @@ public:
         return (os << "(" << p.x << ", " << p.y << ")");
     }
 };
+
+namespace detail
+{
+
+class HashFunc
+{
+public:
+    __device__ __host__ std::size_t operator() (const Point<int128_t> &arg) const noexcept
+    {
+        return arg.hash();
+    }
+};
+
+}
 
 #endif
