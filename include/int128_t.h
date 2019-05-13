@@ -65,8 +65,11 @@ __host__ std::string HexStr(const T itbegin, const T itend, bool fSpaces=false)
     return rv;
 }
 
+class int256_t;
+
 class int128_t
 {
+    friend class int256_t;
 protected:
     uint32_t pn[4];
 public:
@@ -83,6 +86,9 @@ public:
         memcpy(pn, b.pn, sizeof(pn));
         return *this;
     }
+
+    CUDA_CALLABLE int128_t(const int256_t &b);
+    CUDA_CALLABLE int128_t& operator=(const int256_t &b);
 
     __host__ int128_t& operator=(const std::string &str)
     {
@@ -296,7 +302,7 @@ public:
         return ret;
     }
 
-    CUDA_CALLABLE bool isLessZero() const
+    CUDA_CALLABLE inline bool isLessZero() const
     {
         return pn[3] & 0x80000000;
     }
@@ -392,30 +398,7 @@ public:
 
     __host__ const int128_t& random( const int128_t &mod );
 
-    // Works for values greater then 0
-    CUDA_CALLABLE void div(const int128_t &a, const int128_t &b)
-    {
-        memset(pn, 0, sizeof(pn));
-
-        int128_t num = a;
-        int128_t div = b;
-        
-        int shift = num.bitlength() - div.bitlength();
-        if(shift < 0)
-            return;
-
-        div <<= shift; // shift so that div and num align
-        
-        for(; shift >= 0; --shift)
-        {
-            if(num >= div)
-            {
-                num -= div;
-                pn[shift >> 5] |= (1 << (shift & 31)); // set a bit of the result
-            }
-            div >>= 1; // shift back
-        }
-    }
+    CUDA_CALLABLE int128_t modmul(const int128_t& b, const int128_t& mod) const;
 };
 
 CUDA_CALLABLE int128_t& int128_t::operator<<=(unsigned int shift)
@@ -529,24 +512,20 @@ CUDA_CALLABLE int128_t& int128_t::operator/=(const int128_t& b)
 
     memset(pn, 0, sizeof(pn));
 
-    int num_bits = num.bitlength();
-    int div_bits = div.bitlength();
+    int shift = num.bitlength() - div.bitlength();
+    if(shift < 0)
+        return (*this);
+
+    div <<= shift; // shift so that div and num align
     
-    if (div_bits > num_bits) // the result is certainly 0.
-        return *this;
-    
-    int shift = num_bits - div_bits;
-    div <<= shift; // shift so that div and num align.
-    
-    while(shift >= 0)
+    for(; shift >= 0; --shift)
     {
-        if( num >= div )
+        if(num >= div)
         {
             num -= div;
-            pn[shift >> 5] |= (1 << (shift & 31)); // set a bit of the result.
+            pn[shift >> 5] |= (1 << (shift & 31)); // set a bit of the result
         }
-        div >>= 1; // shift back.
-        --shift;
+        div >>= 1; // shift back
     }
 
     return (*this);
@@ -595,6 +574,365 @@ const int128_t& int128_t::random( const int128_t &mod )
     if( *this >= mod )
         *this %= mod;
     return *this;
+}
+
+class int256_t
+{
+    friend class int128_t;
+protected:
+    static constexpr int WIDTH = 8;
+    uint32_t pn[WIDTH];
+public:
+
+    CUDA_CALLABLE int256_t()
+    {
+        for (int i = 0; i < WIDTH; i++)
+            pn[i] = 0;
+    }
+
+    CUDA_CALLABLE int256_t(const int256_t& b)
+    {
+        for (int i = 0; i < WIDTH; i++)
+            pn[i] = b.pn[i];
+    }
+
+    CUDA_CALLABLE int256_t(const int128_t& b)
+    {
+        memset(pn, 0, sizeof(pn));
+        for (int i = 0; i < 4; i++)
+            pn[i] = b.pn[i];
+    }
+
+    CUDA_CALLABLE int256_t& operator=(const int256_t& b)
+    {
+        for (int i = 0; i < WIDTH; i++)
+            pn[i] = b.pn[i];
+        return *this;
+    }
+
+    CUDA_CALLABLE int256_t& operator=(const int128_t& b)
+    {
+        for (int i = 0; i < 4; i++)
+            pn[i] = b.pn[i];
+        for (int i = 4; i < WIDTH; i++)
+            pn[i] = 0;
+        return *this;
+    }
+
+    CUDA_CALLABLE int256_t(uint64_t b)
+    {
+        pn[0] = (unsigned int)b;
+        pn[1] = (unsigned int)(b >> 32);
+        for (int i = 2; i < WIDTH; i++)
+            pn[i] = 0;
+    }
+
+    CUDA_CALLABLE const int256_t operator~() const
+    {
+        int256_t ret;
+        for (int i = 0; i < WIDTH; i++)
+            ret.pn[i] = ~pn[i];
+        return ret;
+    }
+
+    CUDA_CALLABLE const int256_t operator-() const
+    {
+        int256_t ret;
+        for(int i = 0; i < WIDTH; i++)
+            ret.pn[i] = ~pn[i];
+        ++ret;
+        return ret;
+    }
+
+    CUDA_CALLABLE int256_t& operator=(uint64_t b)
+    {
+        memset(pn, 0, sizeof(pn));
+        pn[0] = (unsigned int)b;
+        pn[1] = (unsigned int)(b >> 32);
+        return *this;
+    }
+
+    CUDA_CALLABLE int256_t& operator<<=(unsigned int shift);
+    CUDA_CALLABLE int256_t& operator>>=(unsigned int shift);
+
+    CUDA_CALLABLE int256_t& operator+=(const int256_t& b)
+    {
+        uint64_t carry = 0;
+        for (int i = 0; i < WIDTH; i++)
+        {
+            uint64_t n = carry + pn[i] + b.pn[i];
+            pn[i] = n & 0xffffffff;
+            carry = n >> 32;
+        }
+        return *this;
+    }
+
+    CUDA_CALLABLE int256_t& operator-=(const int256_t& b)
+    {
+        *this += -b;
+        return *this;
+    }
+
+    CUDA_CALLABLE int256_t& operator*=(const int256_t& b);
+    CUDA_CALLABLE int256_t& operator/=(const int256_t& b);
+
+    CUDA_CALLABLE int256_t& operator++()
+    {
+        // prefix operator
+        int i = 0;
+        while (i < WIDTH && ++pn[i] == 0)
+            i++;
+        return *this;
+    }
+
+    CUDA_CALLABLE const int256_t operator++(int)
+    {
+        // postfix operator
+        const int256_t ret = *this;
+        ++(*this);
+        return ret;
+    }
+
+    CUDA_CALLABLE int256_t& operator--()
+    {
+        // prefix operator
+        int i = 0;
+        while (i < WIDTH && --pn[i] == 0xffffffff)
+            i++;
+        return *this;
+    }
+
+    CUDA_CALLABLE const int256_t operator--(int)
+    {
+        // postfix operator
+        const int256_t ret = *this;
+        --(*this);
+        return ret;
+    }
+
+    CUDA_CALLABLE int CompareTo(const int256_t& b) const;
+    CUDA_CALLABLE bool EqualTo(uint64_t b) const;
+    
+    CUDA_CALLABLE friend inline const int256_t operator%(const int256_t& a, const int256_t& b)
+    {
+        return a - b * ( a / b );
+    }
+    
+    CUDA_CALLABLE friend inline const int256_t operator+(const int256_t& a, const int256_t& b) { return int256_t(a) += b; }
+    CUDA_CALLABLE friend inline const int256_t operator-(const int256_t& a, const int256_t& b) { return int256_t(a) -= b; }
+    CUDA_CALLABLE friend inline const int256_t operator*(const int256_t& a, const int256_t& b) { return int256_t(a) *= b; }
+    CUDA_CALLABLE friend inline const int256_t operator/(const int256_t& a, const int256_t& b) { return int256_t(a) /= b; }
+    CUDA_CALLABLE friend inline const int256_t operator>>(const int256_t& a, int shift) { return int256_t(a) >>= shift; }
+    CUDA_CALLABLE friend inline const int256_t operator<<(const int256_t& a, int shift) { return int256_t(a) <<= shift; }
+
+    CUDA_CALLABLE friend inline bool operator==(const int256_t& a, const int256_t& b)
+    {
+        return (a.pn[0] == b.pn[0]) && (a.pn[1] == b.pn[1]) && (a.pn[2] == b.pn[2]) && (a.pn[3] == b.pn[3]) && 
+            (a.pn[4] == b.pn[4]) && (a.pn[5] == b.pn[5]) && (a.pn[6] == b.pn[6]) && (a.pn[7] == b.pn[7]);
+    }
+
+    CUDA_CALLABLE friend inline bool operator!=(const int256_t& a, const int256_t& b) { return !(a == b); }
+
+    CUDA_CALLABLE friend inline bool operator<(const int256_t& a, const int256_t& b)
+    {
+        const bool lhsSign = a.isLessZero();
+        const bool rhsSign = b.isLessZero();
+
+        if( lhsSign != rhsSign )
+            return lhsSign > rhsSign;
+    
+        int i = 7;
+        for(; a.pn[i] == b.pn[i] && i > 0; --i)
+        {
+            // do nothing;
+        }
+
+        if(a.pn[i] < b.pn[i])
+            return !lhsSign;
+        else
+            return lhsSign;
+    }
+
+    CUDA_CALLABLE friend inline bool operator>(const int256_t& a, const int256_t& b)
+    {
+        const bool lhsSign = a.isLessZero();
+        const bool rhsSign = b.isLessZero();
+
+        if( lhsSign != rhsSign )
+            return lhsSign < rhsSign;
+
+        int i = 7;
+        for(; a.pn[i] == b.pn[i] && i > 0; --i)
+        {
+            // do nothing;
+        }
+
+        if(a.pn[i] > b.pn[i])
+            return !lhsSign;
+        else
+            return lhsSign;
+    }
+
+    CUDA_CALLABLE friend inline bool operator>=(const int256_t& a, const int256_t& b) { return !(a < b); }
+    CUDA_CALLABLE friend inline bool operator<=(const int256_t& a, const int256_t& b) { return !(a > b); }
+
+    /**
+     * Returns the position of the highest bit set plus one, or zero if the
+     * value is zero.
+     */
+    CUDA_CALLABLE inline unsigned bitlength() const
+    {
+        uint64_t *tmp = (uint64_t *)pn;
+#ifdef __CUDA_ARCH__
+        if(tmp[3])
+            return 257 - __clzll(tmp[3]);
+        else if(tmp[2])
+            return 193 - __clzll(tmp[2]);
+        else if(tmp[1])
+            return 129 - __clzll(tmp[1]);
+        else if(tmp[0])
+            return 65 - __clzll(tmp[0]);
+        else 
+            return 0;
+#else
+        if(tmp[3])
+            return 257 - __builtin_clzll(tmp[3]);
+        else if(tmp[2])
+            return 193 - __builtin_clzll(tmp[2]);
+        else if(tmp[1])
+            return 129 - __builtin_clzll(tmp[1]);
+        else if(tmp[0])
+            return 65 - __builtin_clzll(tmp[0]);
+        else 
+            return 0;
+#endif
+    }
+    
+    CUDA_CALLABLE bool isLessZero() const
+    {
+        return pn[7] & 0x80000000;
+    }
+};
+
+CUDA_CALLABLE int256_t& int256_t::operator<<=(unsigned int shift)
+{
+    if(shift == 0)
+        return *this;
+
+    const int k = shift >> 5;
+
+    if(k != 0)
+    {
+        for(int i = 7; i >= k; --i)
+        {
+            pn[i] = pn[i - k];
+        }
+        memset(pn, 0, k);
+    }
+
+    shift %= 32;
+    if(shift == 0)
+        return *this;
+
+    unsigned begin = 0, end = 0;
+    for(int i = k; i < 8; ++i)
+    {
+        begin = pn[i];
+        pn[i] = (begin << shift) | (end >> (32 - shift));
+        end = begin;
+    }
+
+    return *this;
+}
+
+CUDA_CALLABLE int256_t& int256_t::operator>>=(unsigned int shift)
+{
+    if(shift == 0)
+        return *this;
+
+    const int k = shift >> 5;
+    if(k != 0)
+    {
+        for(int i = 0; i < 8 - k; ++i)
+        {
+            pn[i] = pn[i + k];
+        }
+        memset(pn + k, 0, 8 - k);
+    }
+
+    shift %= 32;
+    if(shift == 0)
+        return *this;
+
+    unsigned begin = 0, end = 0;
+    for(int i = 7 - k; i >= 0; --i)
+    {
+        begin = pn[i];
+        pn[i] = (begin >> shift) | (end << (32 - shift));
+        end = begin;
+    }
+
+    return *this;
+}
+
+CUDA_CALLABLE int256_t& int256_t::operator*=(const int256_t& b)
+{
+    int256_t a;
+    for (int j = 0; j < WIDTH; j++)
+    {
+        uint64_t carry = 0;
+        for (int i = 0; i + j < WIDTH; i++)
+        {
+            uint64_t n = carry + a.pn[i + j] + (uint64_t)pn[j] * b.pn[i];
+            a.pn[i + j] = n;
+            carry = n >> 32;
+        }
+    }
+    *this = a;
+    return *this;
+}
+
+CUDA_CALLABLE int256_t& int256_t::operator/=(const int256_t& b)
+{
+    int256_t div = b;
+    int256_t num = (*this);
+
+    memset(pn, 0, sizeof(pn));
+
+    int shift = num.bitlength() - div.bitlength();
+    if(shift < 0)
+        return (*this);
+
+    div <<= shift; // shift so that div and num align
+    
+    for(; shift >= 0; --shift)
+    {
+        if(num >= div)
+        {
+            num -= div;
+            pn[shift >> 5] |= (1 << (shift & 31)); // set a bit of the result
+        }
+        div >>= 1; // shift back
+    }
+
+    return (*this);
+}
+
+CUDA_CALLABLE int128_t::int128_t(const int256_t &b)
+{
+    memcpy(pn, b.pn, sizeof(pn));
+}
+
+CUDA_CALLABLE int128_t& int128_t::operator=(const int256_t &b)
+{
+    memcpy(pn, b.pn, sizeof(pn));
+    return *this;
+}
+
+CUDA_CALLABLE int128_t int128_t::modmul(const int128_t& b, const int128_t& mod) const
+{
+    int256_t res = int256_t( *this ) * int256_t( b );
+    return res % int256_t( mod );
 }
 
 #endif // _int128_H

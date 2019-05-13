@@ -15,6 +15,7 @@ class FiniteField;
 namespace detail
 {
 
+// Not used
 template<typename T>
 CUDA_CALLABLE T mulmod(const T &A, const T &B, const T &mod) 
 { 
@@ -42,7 +43,7 @@ CUDA_CALLABLE int128_t invmod(const int128_t &x, const int128_t &n)
     int128_t t1, t2, q;
     while( g1 != 0 )
     {
-        q.div(g, g1);
+        q = g / g1;
         t1 = u - q * u1;
         t2 = g - q * g1;
         u = u1;

@@ -39,13 +39,22 @@ public:
     int128_t m{"0x30a8fb0587b90c"};
 };
 
-class bits65_curve : public ::testing::Test
+class bits64_curve : public ::testing::Test
 {
 public:
     EllipticCurve<int128_t> ec{ int128_t{"0x3aa9d64204542061"}, int128_t{"0x1e1f2ab759811962"}, int128_t{"0x97c940edc00408ed"} };
     Point<int128_t> g{ int128_t{"0x1b0c41e43e0cf2e9"}, int128_t{"0x782454f18de8203d"} };
     int128_t order{"0x97c940ef3f44ee07"};
     int128_t m{"0x4be4a0779fa27800"};
+};
+
+class bits79_curve : public ::testing::Test
+{
+public:
+    EllipticCurve<int128_t> ec{ int128_t{"0x4A2E38A8F66D7F4C385F"}, int128_t{"0x2C0BB31C6BECC03D68A7"}, int128_t{"0x80000000000000000201"} };
+    Point<int128_t> g{ int128_t{"0x30CB127B63E42792F10F"}, int128_t{"0x547B2C88266BB04F713B"} };
+    int128_t order{"0x40000000004531A2562B"};
+    int128_t m{"0x3AA068A09F1ED21E2582"};
 };
 
 TEST(int128_t, arithmetics)
@@ -185,21 +194,21 @@ TEST_F(bits35_curve, gpu)
         << ". Calculation time: " << std::get<2>( result ) << " sec." << std::endl;
 }
 
-TEST_F(bits45_curve, cpu)
-{
-    auto result = cpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
-    ASSERT_EQ(std::get<0>( result ), m);
-
-    std::cout << "[bits45_cpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
-        << ". Calculation time: " << std::get<2>( result ) << " sec." << std::endl;
-}
-
 TEST_F(bits45_curve, gpu)
 {
     auto result = gpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
     ASSERT_EQ(std::get<0>( result ), m);
 
     std::cout << "[bits45_gpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
+        << ". Calculation time: " << std::get<2>( result ) << " sec." << std::endl;
+}
+
+TEST_F(bits45_curve, cpu)
+{
+    auto result = cpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
+    ASSERT_EQ(std::get<0>( result ), m);
+
+    std::cout << "[bits45_cpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
         << ". Calculation time: " << std::get<2>( result ) << " sec." << std::endl;
 }
 
@@ -221,26 +230,46 @@ TEST_F(bits55_curve, gpu)
         << ". Calculation time: " << std::get<2>( result ) << " sec." << std::endl;
 }
 
-TEST_F(bits65_curve, cpu)
+TEST_F(bits64_curve, cpu)
 {
     auto result = cpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
     ASSERT_EQ(std::get<0>( result ), m);
 
-    std::cout << "[bits65_cpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
+    std::cout << "[bits64_cpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
         << ". Calculation time: " << std::get<2>( result ) << " sec." << std::endl;
 }
 
-TEST_F(bits65_curve, gpu)
+TEST_F(bits64_curve, gpu)
 {
     auto result = gpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
     ASSERT_EQ(std::get<0>( result ), m);
 
-    std::cout << "[bits65_gpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
+    std::cout << "[bits64_gpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
+        << ". Calculation time: " << std::get<2>( result ) << " sec." << std::endl;
+}
+
+TEST_F(bits79_curve, cpu)
+{
+    auto result = cpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
+    ASSERT_EQ(std::get<0>( result ), m);
+
+    std::cout << "[bits79_cpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
+        << ". Calculation time: " << std::get<2>( result ) << " sec." << std::endl;
+}
+
+TEST_F(bits79_curve, gpu)
+{
+    auto result = gpu::rho_pollard<int128_t>(ec.mul(m, g), g, order, ec);
+    ASSERT_EQ(std::get<0>( result ), m);
+
+    std::cout << "[bits79_gpu] Average number of rho-pollard iterations per second: " << std::get<1>( result ) 
         << ". Calculation time: " << std::get<2>( result ) << " sec." << std::endl;
 }
 
 int main(int argc, char ** argv)
 {
+    checkCudaErrors(cudaSetDeviceFlags(cudaDeviceMapHost));
+
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

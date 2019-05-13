@@ -8,8 +8,15 @@
 #include <cuda_runtime.h>
 
 #define POLLARD_SET_COUNT 0x20
-#define THREADS_PER_BLOCK 48
-#define THREADS 384
+
+// For 610m
+#define THREADS_PER_BLOCK 64
+#define THREADS 512
+
+// For K40c
+// #define THREADS_PER_BLOCK 256
+// #define THREADS 19200
+
 #define BUFFER_SIZE 8388608
 #define DEBUG
 
@@ -81,13 +88,13 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
 
             iteration(X2, c2, d2, a, b, R, ec);
             iteration(X2, c2, d2, a, b, R, ec);
-            iters++;
+            iters += 3;
         }
         while(X1 != X2);
         auto after = std::chrono::system_clock::now();
 
-        time = std::chrono::duration_cast<std::chrono::seconds>(after - before).count();
-        iters_per_sec = (iters * 3.0) / time;
+        time = std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count();
+        iters_per_sec = (iters * 3.0) / time * 1000;
 
         c1 = c1 % order;
         d1 = d1 % order;
@@ -110,7 +117,7 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
 
         T d_inv = detail::invmod(d, order); if(d_inv < 0) d_inv += order;
 
-        return std::make_tuple((c * d_inv) % order, iters_per_sec, time);
+        return std::make_tuple((c * d_inv) % order, iters_per_sec, time / 1000);
     }
 }
 }   // namespace cpu
@@ -180,26 +187,25 @@ rho_pollard(const Point<T> &Q,
             const T &order,
             const EllipticCurve<T> &ec )
 {
-    checkCudaErrors(cudaSetDeviceFlags(cudaDeviceMapHost));
     checkCudaErrors(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1));
 
     // Host memory
-    T c1_host[THREADS], d1_host[THREADS];
+    T c_host[THREADS], d_host[THREADS];
     T a_host[POLLARD_SET_COUNT], b_host[POLLARD_SET_COUNT];
     Point<T> R_host[POLLARD_SET_COUNT];
-    Point<T> X1_host[THREADS];
+    Point<T> X_host[THREADS];
 
     // Device memory
-    T *c1_device = nullptr, *d1_device = nullptr;
-    Point<T> *X1_device = nullptr;
+    T *c_device = nullptr, *d_device = nullptr;
+    Point<T> *X_device = nullptr;
     PointCD<T> *device_buffer = nullptr;
 
-    unsigned pattern = (1 << ec.getP().bitlength()) - 1;
+    unsigned pattern = (1 << (ec.getP().bitlength() / 4)) - 1;
 
-    checkCudaErrors(cudaMalloc((void **)&c1_device, sizeof(c1_host)));
-    checkCudaErrors(cudaMalloc((void **)&d1_device, sizeof(d1_host)));
+    checkCudaErrors(cudaMalloc((void **)&c_device, sizeof(c_host)));
+    checkCudaErrors(cudaMalloc((void **)&d_device, sizeof(d_host)));
 
-    checkCudaErrors(cudaMalloc((void **)&X1_device, sizeof(X1_host)));
+    checkCudaErrors(cudaMalloc((void **)&X_device, sizeof(X_host)));
 
     checkCudaErrors(cudaMalloc((void **)&device_buffer, BUFFER_SIZE * sizeof(PointCD<T>)));
 
@@ -234,13 +240,13 @@ rho_pollard(const Point<T> &Q,
 
         for(unsigned i = 0; i < THREADS; i++)
         {
-            c1_host[i].random(order);
-            d1_host[i].random(order);  
-            X1_host[i] = ec.add(ec.mul(c1_host[i], P), ec.mul(d1_host[i], Q));
+            c_host[i].random(order);
+            d_host[i].random(order);  
+            X_host[i] = ec.add(ec.mul(c_host[i], P), ec.mul(d_host[i], Q));
         }      
         
-        checkCudaErrors(cudaMemcpy((void *)c1_device, (const void*)c1_host, sizeof(c1_host), cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemcpy((void *)d1_device, (const void*)d1_host, sizeof(d1_host), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy((void *)c_device, (const void*)c_host, sizeof(c_host), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy((void *)d_device, (const void*)d_host, sizeof(d_host), cudaMemcpyHostToDevice));
 
         checkCudaErrors(cudaMemcpyToSymbol(a_const, a_host, sizeof(a_host)));
         checkCudaErrors(cudaMemcpyToSymbol(b_const, b_host, sizeof(b_host)));
@@ -249,7 +255,7 @@ rho_pollard(const Point<T> &Q,
 
         checkCudaErrors(cudaMemcpyToSymbol(ec_const, &ec, sizeof(EllipticCurve<T>)));
 
-        checkCudaErrors(cudaMemcpy((void *)X1_device, (const void*)X1_host, sizeof(X1_host), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy((void *)X_device, (const void*)X_host, sizeof(X_host), cudaMemcpyHostToDevice));
 
 #ifdef DEBUG
         unsigned long long num_iter = 0;
@@ -257,10 +263,11 @@ rho_pollard(const Point<T> &Q,
 #endif
         // kerner invocation here
         auto before = std::chrono::system_clock::now();
-        rho_pollard_kernel<<<THREADS / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, kernel_stream>>>(X1_device, c1_device, d1_device,
+        rho_pollard_kernel<<<THREADS / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, kernel_stream>>>(X_device, c_device, d_device,
             device_buffer, buffer_tail_d, found_d, pattern);
 
-        std::thread worker([&](){
+        std::thread worker([&]()
+        {
             int tail = 0;
             std::unordered_map<Point<T>, std::pair<T, T>, detail::HashFunc> host_storage;
             PointCD<T> dist_point;
@@ -309,7 +316,7 @@ rho_pollard(const Point<T> &Q,
                     }
                 }
                 tail = tmp_tail;
-                std::this_thread::sleep_for(std::chrono::seconds(1));
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
         });
 
@@ -322,8 +329,8 @@ rho_pollard(const Point<T> &Q,
         checkCudaErrors(cudaMemcpyFromSymbol(&num_iter, num_iter_d, sizeof(num_iter), 0, cudaMemcpyDeviceToHost));
 #endif
 
-        time = std::chrono::duration_cast<std::chrono::seconds>(after - before).count();
-        iters_per_sec = (num_iter + 0.0) / time;
+        time = std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count();
+        iters_per_sec = (num_iter + 0.0) / time * 1000;
     }
     
     checkCudaErrors(cudaStreamDestroy(kernel_stream));
@@ -331,13 +338,13 @@ rho_pollard(const Point<T> &Q,
 
     checkCudaErrors(cudaFreeHost((void *)buffer_tail));
 
-    checkCudaErrors(cudaFree(c1_device));
-    checkCudaErrors(cudaFree(d1_device));
+    checkCudaErrors(cudaFree(c_device));
+    checkCudaErrors(cudaFree(d_device));
 
-    checkCudaErrors(cudaFree(X1_device));
+    checkCudaErrors(cudaFree(X_device));
 
     checkCudaErrors(cudaFree(device_buffer));
 
-    return std::make_tuple(result, iters_per_sec, time);
+    return std::make_tuple(result, iters_per_sec, time / 1000);
 }
 }   // namespace gpu
