@@ -49,7 +49,7 @@ inline void iteration(  Point<T> &r,
                         const EllipticCurve<T> &ec )
 {
     unsigned index = r.getX() & (POLLARD_SET_COUNT - 1);
-    r = ec.add(r, R[index]);
+    ec.addition(r, R[index]);
     c += a[index];
     d += b[index];
 }
@@ -72,12 +72,12 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
         {
             a[i].random(order);
             b[i].random(order) ;
-            R[i] = ec.add(ec.mul(a[i], P), ec.mul(b[i], Q));
+            R[i] = ec.plus(ec.mul(a[i], P), ec.mul(b[i], Q));
         }
 
         c1 = c2.random(order);
         d1 = d2.random(order);
-        Point<T> X1 = ec.add(ec.mul(c1, P), ec.mul(d1, Q));
+        Point<T> X1 = ec.plus(ec.mul(c1, P), ec.mul(d1, Q));
         Point<T> X2 = X1;
         
         unsigned long long iters = 0;
@@ -101,7 +101,7 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
         c2 = c2 % order;
         d2 = d2 % order;
 
-        if(ec.add(ec.mul(c2, P), ec.mul(d2, Q)) != X2 || ec.add(ec.mul(c1, P), ec.mul(d1, Q)) != X1 || !ec.check(X1))
+        if(ec.plus(ec.mul(c2, P), ec.mul(d2, Q)) != X2 || ec.plus(ec.mul(c1, P), ec.mul(d1, Q)) != X1 || !ec.check(X1))
         {
             std::cerr << "[INFO] c1 * P + d1 * Q != X1 or c2 * P + d2 * Q != X2 or X1 is not on curve." << std::endl;
             continue;
@@ -124,19 +124,25 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
 
 namespace gpu
 {
-__constant__ int128_t a_const[POLLARD_SET_COUNT];
-__constant__ int128_t b_const[POLLARD_SET_COUNT];
+// Support up to 256 bit arithmetics
+__constant__ uint32_t a_const[POLLARD_SET_COUNT * 8];
+__constant__ uint32_t b_const[POLLARD_SET_COUNT * 8];
 
-__constant__ Point<int128_t> R_const[POLLARD_SET_COUNT];
-
-__constant__ EllipticCurve<int128_t> ec_const;
+__constant__ uint32_t R_const[POLLARD_SET_COUNT * 16];
 
 #ifdef DEBUG
 __device__ unsigned long long num_iter_d = 0;
 #endif
 
 template<typename T>
-__global__ void rho_pollard_kernel( Point<T> *X_arr, T *c_arr, T *d_arr, PointCD<T> *buffer, int *buffer_tail_d, bool *found_d, unsigned pattern )
+__global__ void rho_pollard_kernel( Point<T> *X_arr,
+                                    T *c_arr,
+                                    T *d_arr,
+                                    PointCD<T> *buffer,
+                                    int *buffer_tail_d,
+                                    bool *found_d,
+                                    unsigned pattern,
+                                    const EllipticCurve<T> ec_const)
 {
     volatile __shared__ bool someoneFoundIt;
 
@@ -156,9 +162,9 @@ __global__ void rho_pollard_kernel( Point<T> *X_arr, T *c_arr, T *d_arr, PointCD
     while( !someoneFoundIt )
     {
         index = X.getX() & (POLLARD_SET_COUNT - 1);
-        ec_const.addition(X, R_const[index]);
-        c += a_const[index];
-        d += b_const[index];
+        ec_const.addition(X, ((Point<T> *)R_const)[index]);
+        c += ((T *)a_const)[index];
+        d += ((T *)b_const)[index];
 
 #ifdef DEBUG
         num_iter++;
@@ -235,14 +241,14 @@ rho_pollard(const Point<T> &Q,
         {
             a_host[i].random(order);
             b_host[i].random(order);
-            R_host[i] = ec.add(ec.mul(a_host[i], P), ec.mul(b_host[i], Q));
+            R_host[i] = ec.plus(ec.mul(a_host[i], P), ec.mul(b_host[i], Q));
         }
 
         for(unsigned i = 0; i < THREADS; i++)
         {
             c_host[i].random(order);
             d_host[i].random(order);  
-            X_host[i] = ec.add(ec.mul(c_host[i], P), ec.mul(d_host[i], Q));
+            X_host[i] = ec.plus(ec.mul(c_host[i], P), ec.mul(d_host[i], Q));
         }      
         
         checkCudaErrors(cudaMemcpy((void *)c_device, (const void*)c_host, sizeof(c_host), cudaMemcpyHostToDevice));
@@ -253,8 +259,6 @@ rho_pollard(const Point<T> &Q,
 
         checkCudaErrors(cudaMemcpyToSymbol(R_const, R_host, sizeof(R_host)));
 
-        checkCudaErrors(cudaMemcpyToSymbol(ec_const, &ec, sizeof(EllipticCurve<T>)));
-
         checkCudaErrors(cudaMemcpy((void *)X_device, (const void*)X_host, sizeof(X_host), cudaMemcpyHostToDevice));
 
 #ifdef DEBUG
@@ -264,7 +268,7 @@ rho_pollard(const Point<T> &Q,
         // kerner invocation here
         auto before = std::chrono::system_clock::now();
         rho_pollard_kernel<<<THREADS / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, kernel_stream>>>(X_device, c_device, d_device,
-            device_buffer, buffer_tail_d, found_d, pattern);
+            device_buffer, buffer_tail_d, found_d, pattern, ec);
 
         std::thread worker([&]()
         {
@@ -291,7 +295,7 @@ rho_pollard(const Point<T> &Q,
                         c2 = c2 % order;
                         d2 = d2 % order;
 
-                        if(ec.add(ec.mul(c1, P), ec.mul(d1, Q)) != X1 || ec.add(ec.mul(c2, P), ec.mul(d2, Q)) != X2 || !ec.check(X1))
+                        if(ec.plus(ec.mul(c1, P), ec.mul(d1, Q)) != X1 || ec.plus(ec.mul(c2, P), ec.mul(d2, Q)) != X2 || !ec.check(X1))
                         {
                             std::cerr << "[INFO] c1 * P + d1 * Q != X1 or c2 * P + d2 * Q != X2 or X1 is not on curve." << std::endl;
                             continue;

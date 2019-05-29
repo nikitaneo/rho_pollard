@@ -1,7 +1,8 @@
-#include <iostream>
-
 #ifndef ELLIPTIC_H
 #define ELLIPTIC_H
+
+#include <iostream>
+#include <arith.h>
 
 #define CUDA_CALLABLE __host__ __device__
 
@@ -35,12 +36,12 @@ CUDA_CALLABLE T mulmod(const T &A, const T &B, const T &mod)
     return res; 
 }
 
-// Solve linear congruence equation x * z == 1 (mod n) for z. buf is size of 8 * sizeof(int128_t)
-CUDA_CALLABLE int128_t invmod(const int128_t &x, const int128_t &n)
+template<unsigned int BITS>
+CUDA_CALLABLE base_uint<BITS> invmod(const base_uint<BITS> &x, const base_uint<BITS> &n)
 {
-    int128_t u = 1, g = x;
-    int128_t u1 = 0, g1 = n;
-    int128_t t1, t2, q;
+    base_uint<BITS> u = 1, g = x;
+    base_uint<BITS> u1 = 0, g1 = n;
+    base_uint<BITS> t1, t2, q;
     while( g1 != 0 )
     {
         q = g / g1;
@@ -215,12 +216,12 @@ class EllipticCurve
         Point<T> r = p;
         for(T n = 0; n < m; ++n)
         {
-            r = add(r, r); // doubling step
+            r = plus(r, r); // doubling step
         }
         p = r;
     }
 
-    CUDA_CALLABLE Point<T> add(const Point<T> &lhs, const Point<T> &rhs) const
+    CUDA_CALLABLE Point<T> plus(const Point<T> &lhs, const Point<T> &rhs) const
     {
         if(lhs.x == 0 && lhs.y == 0)
         {
@@ -252,7 +253,7 @@ class EllipticCurve
         return Point<T>(xR, yR);
     }
 
-    __device__ void addition(Point<T> &lhs, const Point<T> &rhs) const
+    CUDA_CALLABLE void addition(Point<T> &lhs, const Point<T> &rhs) const
     {
         const ffe_t x1(lhs.x, P), y1(lhs.y, P), x2(rhs.x, P), y2(rhs.y, P);
         const ffe_t s = y1.sub(y2, P).div(x1.sub(x2, P), P);
@@ -273,7 +274,7 @@ class EllipticCurve
             {
                 // bit is set; acc = 2^(i-j)*acc
                 addDouble(i - j, acc);
-                res = add(res, acc);
+                res = plus(res, acc);
                 j = i; // last bit set
             }
             b >>= 1;
@@ -357,8 +358,9 @@ namespace detail
 
 class HashFunc
 {
-public:
-    __device__ __host__ std::size_t operator() (const Point<int128_t> &arg) const noexcept
+public: 
+    template<unsigned BYTES>
+    __device__ __host__ std::size_t operator() (const Point<base_uint<BYTES>> &arg) const noexcept
     {
         return arg.hash();
     }
