@@ -215,13 +215,13 @@ public:
 
         // Carry in and carry out    
         #pragma unroll
-        for(int i = 1; i < WIDTH; i++)
+        for(int i = 1; i < WIDTH; ++i)
         {
             asm volatile( "addc.cc.u32 %0, %1, %2;\n\t" : "=r"(a[ i ]) : "r"(b.pn[ i ]), "r"(pn[ i ]) );
         }
 #else
         uint64_t carry = 0;
-        for (int i = 0; i < WIDTH; i++)
+        for (int i = 0; i < WIDTH; ++i)
         {
             uint64_t n = carry + pn[i] + b.pn[i];
             pn[i] = n & 0xffffffff;
@@ -269,10 +269,10 @@ public:
 #ifdef __CUDA_ARCH__
         base_uint<WIDTH> a = 0;
         uint64_t n;
-        for( unsigned j = 0; j < WIDTH; j++ )
+        for( unsigned j = 0; j < WIDTH; ++j )
         {
             n = 0;
-            for( unsigned i = 0; i + j < WIDTH; i++)
+            for( unsigned i = 0; i + j < WIDTH; ++i )
             {
                 asm volatile( "mad.wide.u32 %0, %1, %2, %3;\n\t" : "=l"(n) : "r"(pn[j]), "r"(b.pn[i]), "l"((n >> 32) + a.pn[i + j]) );
                 a.pn[i + j] = n;
@@ -381,14 +381,15 @@ public:
     CUDA_CALLABLE friend inline const base_uint operator^(const base_uint& a, const base_uint& b) { return base_uint(a) ^= b; }
     CUDA_CALLABLE friend inline const base_uint operator>>(const base_uint& a, int shift) { return base_uint(a) >>= shift; }
     CUDA_CALLABLE friend inline const base_uint operator<<(const base_uint& a, int shift) { return base_uint(a) <<= shift; }
+
     CUDA_CALLABLE friend inline bool operator==(const base_uint& a, const base_uint& b)
     {
-        for(unsigned i = 0; i < WIDTH; ++i)
+        unsigned i;
+        for( i = 0; (i < WIDTH) && (a.pn[i] == b.pn[i]); ++i )
         {
-            if(a.pn[i] != b.pn[i])
-                return false;
+            // do nothing
         }
-        return true;
+        return i == WIDTH;
     }
     CUDA_CALLABLE friend inline bool operator!=(const base_uint& a, const base_uint& b) { return !(a == b); }
     
@@ -521,6 +522,92 @@ public:
     {
         return pn[WIDTH - 1] & 0x80000000;
     }
+
+    CUDA_CALLABLE const base_uint sub_modp(const base_uint &a, const base_uint &p) const
+    {
+#ifdef __CUDA_ARCH__
+        base_uint<WIDTH> c;
+        unsigned int *c_arr = c.pn;
+        asm volatile( "sub.cc.u32 %0, %1, %2;\n\t" : "=r"(c_arr[ 0 ]) : "r"(pn[ 0 ]), "r"(a.pn[ 0 ]) );
+        
+        #pragma unroll
+        for(int i = 1; i < WIDTH; i++)
+        {
+            asm volatile( "subc.cc.u32 %0, %1, %2;\n\t" : "=r"(c_arr[ i ]) : "r"(pn[ i ]), "r"(a.pn[ i ]) );
+        }
+        
+        unsigned int borrow = 0;
+        asm volatile( "subc.u32 %0, %1, %2;\n\t" : "=r"(borrow) : "r"(0), "r"(0));
+        if(borrow)
+        {
+            c = c.add(p);
+        }
+        return c;
+#else
+        base_uint<WIDTH> c = *this - a;
+        if(c.isLessZero())
+            c += p;
+        return c;
+#endif 
+    }
+
+    CUDA_CALLABLE const base_uint add(const base_uint &a) const
+    {
+        return *this + a;
+    }
+
+    CUDA_CALLABLE const base_uint add_modp(const base_uint &a, const base_uint &p) const
+    {
+        base_uint<WIDTH> c = *this + a;
+        if( c >= p )
+            c -= p;
+        return c;
+    }
+
+    CUDA_CALLABLE const base_uint mul_modp(const base_uint &a, const base_uint &p) const
+    {
+        return *this * a % p;
+    }
+
+    CUDA_CALLABLE const base_uint inv_modp(const base_uint &p) const
+    {
+        base_uint<WIDTH> u = 1, g = *this;
+        base_uint<WIDTH> u1 = 0, g1 = p;
+        base_uint<WIDTH> t1, t2, q;
+        while( g1 != 0 )
+        {
+            q = g / g1;
+            t1 = u - q * u1;
+            t2 = g - q * g1;
+            u = u1;
+            g = g1;
+            u1 = t1;
+            g1 = t2;
+        }
+
+        q = u % p;
+        return q.isLessZero() ? q + p : q;
+    }
+
+    CUDA_CALLABLE const base_uint div_modp(const base_uint &a, const base_uint &p) const
+    {
+        return mul_modp(a.inv_modp(p), p);
+    }
 };
+
+namespace detail
+{
+
+class HashFunc
+{
+public: 
+    template<unsigned BYTES>
+    __device__ __host__ std::size_t operator() (const Point<base_uint<BYTES>> &arg) const noexcept
+    {
+        return arg.hash();
+    }
+};
+
+}
 
 #endif // _ARITH_H

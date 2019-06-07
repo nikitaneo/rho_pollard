@@ -1,3 +1,6 @@
+#ifndef _POLLARD_H
+#define _POLLARD_H
+
 #include <elliptic.h>
 #include <stdlib.h>
 #include <fstream>
@@ -6,6 +9,8 @@
 #include <unordered_map>
 #include <helper_cuda.h>
 #include <cuda_runtime.h>
+
+#include <arith.h>
 
 #define POLLARD_SET_COUNT 0x20
 
@@ -56,7 +61,7 @@ inline void iteration(  Point<T> &r,
 
 // Solve Q = xP
 template<typename T>
-std::tuple<T, double, unsigned long long>
+std::tuple<T, double, unsigned long long, unsigned long long>
 rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const EllipticCurve<T> &ec )
 {
     T c1, c2, d1, d2;
@@ -65,9 +70,10 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
     std::vector<Point<T>> R(POLLARD_SET_COUNT, P);
     
     double iters_per_sec = 0;
-    unsigned long long time = 0;
+    unsigned long long prep_time = 0, iters_time = 0;
     while( true )
     {
+        auto before_prep = std::chrono::system_clock::now();
         for(unsigned i = 0; i < POLLARD_SET_COUNT; i++)
         {
             a[i].random(order);
@@ -79,9 +85,11 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
         d1 = d2.random(order);
         Point<T> X1 = ec.plus(ec.mul(c1, P), ec.mul(d1, Q));
         Point<T> X2 = X1;
+        auto after_prep = std::chrono::system_clock::now();
+        prep_time = std::chrono::duration_cast<std::chrono::milliseconds>(after_prep - before_prep).count();
         
         unsigned long long iters = 0;
-        auto before = std::chrono::system_clock::now();  
+        auto before_iters = std::chrono::system_clock::now();  
         do
         {
             iteration(X1, c1, d1, a, b, R, ec);
@@ -91,15 +99,13 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
             iters += 3;
         }
         while(X1 != X2);
-        auto after = std::chrono::system_clock::now();
 
-        time = std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count();
-        iters_per_sec = (iters * 3.0) / time * 1000;
+        auto after_iters = std::chrono::system_clock::now();
+        iters_time = std::chrono::duration_cast<std::chrono::milliseconds>(after_iters - before_iters).count();
+        iters_per_sec = (iters * 3.0) / iters_time * 1000;
 
-        c1 = c1 % order;
-        d1 = d1 % order;
-        c2 = c2 % order;
-        d2 = d2 % order;
+        c1 %= order; d1 %= order;
+        c2 %= order; d2 %= order;
 
         if(ec.plus(ec.mul(c2, P), ec.mul(d2, Q)) != X2 || ec.plus(ec.mul(c1, P), ec.mul(d1, Q)) != X1 || !ec.check(X1))
         {
@@ -107,17 +113,17 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
             continue;
         }
 
-        T c = c2 - c1; if(c < 0) c += order;
-        T d = d1 - d2; if(d < 0) d += order;
+        T c = c2.sub_modp(c1, order);
+        T d = d1.sub_modp(d2, order);
         if(d == 0)
         {
             std::cerr << "[INFO] d1 == d2" << std::endl;
             continue;
         }
 
-        T d_inv = detail::invmod(d, order); if(d_inv < 0) d_inv += order;
+        T d_inv = d.inv_modp(order); if(d_inv < 0) d_inv += order;
 
-        return std::make_tuple((c * d_inv) % order, iters_per_sec, time / 1000);
+        return std::make_tuple(c.mul_modp(d_inv, order), iters_per_sec, prep_time, iters_time);
     }
 }
 }   // namespace cpu
@@ -187,7 +193,7 @@ __global__ void rho_pollard_kernel( Point<T> *X_arr,
 
 // Solve Q = xP
 template<typename T>
-std::tuple<T, double, unsigned long long>
+std::tuple<T, double, unsigned long long, unsigned long long>
 rho_pollard(const Point<T> &Q,
             const Point<T> &P,
             const T &order,
@@ -232,11 +238,13 @@ rho_pollard(const Point<T> &Q,
 
     T result = 0;
     double iters_per_sec = 0;
-    unsigned long long time = 0;
+    unsigned long long iters_time = 0, prep_time = 0;
     while( !(*found) )
     {
         *buffer_tail = 0;
 
+        // Preparation step
+        auto before_prep = std::chrono::system_clock::now();
         for(unsigned i = 0; i < POLLARD_SET_COUNT; i++)
         {
             a_host[i].random(order);
@@ -265,76 +273,82 @@ rho_pollard(const Point<T> &Q,
         unsigned long long num_iter = 0;
         checkCudaErrors(cudaMemcpyToSymbol(num_iter_d, &num_iter, sizeof(int)));
 #endif
-        // kerner invocation here
-        auto before = std::chrono::system_clock::now();
-        rho_pollard_kernel<<<THREADS / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, kernel_stream>>>(X_device, c_device, d_device,
-            device_buffer, buffer_tail_d, found_d, pattern, ec);
+        auto after_prep = std::chrono::system_clock::now();
+        prep_time = std::chrono::duration_cast<std::chrono::milliseconds>(after_prep - before_prep).count();
 
-        std::thread worker([&]()
+
+        // Kerner invocation here
+        auto before_iters = std::chrono::system_clock::now();
+        rho_pollard_kernel<<<THREADS / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, kernel_stream>>>(   X_device, 
+                                                                                                    c_device,
+                                                                                                    d_device,
+                                                                                                    device_buffer,
+                                                                                                    buffer_tail_d,
+                                                                                                    found_d,
+                                                                                                    pattern,
+                                                                                                    ec );
+
+
+        // Collision search
+        int tail = 0;
+        std::unordered_map<Point<T>, std::pair<T, T>, detail::HashFunc> host_storage;
+        PointCD<T> dist_point;
+        while( !(*found) )
         {
-            int tail = 0;
-            std::unordered_map<Point<T>, std::pair<T, T>, detail::HashFunc> host_storage;
-            PointCD<T> dist_point;
-            while( !(*found) )
+            int tmp_tail = *buffer_tail;
+            for(int i = tail; i < tmp_tail; i++)
             {
-                int tmp_tail = *buffer_tail;
-                for(int i = tail; i < tmp_tail; i++)
+                checkCudaErrors(cudaMemcpyAsync((void *)&dist_point, (const void*)(device_buffer + i), sizeof(dist_point), cudaMemcpyDeviceToHost, memory_stream));
+                checkCudaErrors(cudaStreamSynchronize(memory_stream));
+                auto iter = host_storage.find( dist_point.point );
+                if(iter != host_storage.end())
                 {
-                    checkCudaErrors(cudaMemcpyAsync((void *)&dist_point, (const void*)(device_buffer + i), sizeof(dist_point), cudaMemcpyDeviceToHost, memory_stream));
-                    checkCudaErrors(cudaStreamSynchronize(memory_stream));
-                    auto iter = host_storage.find( dist_point.point );
-                    if(iter != host_storage.end())
+                    Point<T> X1 = dist_point.point, X2 = iter->first;
+                    T c1 = dist_point.c, c2 = iter->second.first, d1 = dist_point.d, d2 = iter->second.second;
+
+                    c1 %= order; d1 %= order;
+                    c2 %= order; d2 %= order;
+
+                    if(ec.plus(ec.mul(c1, P), ec.mul(d1, Q)) != X1 || ec.plus(ec.mul(c2, P), ec.mul(d2, Q)) != X2 || !ec.check(X1))
                     {
-                        *found = true;
-
-                        Point<T> X1 = dist_point.point, X2 = iter->first;
-                        T c1 = dist_point.c, c2 = iter->second.first, d1 = dist_point.d, d2 = iter->second.second;
-
-                        c1 = c1 % order;
-                        d1 = d1 % order;
-                        c2 = c2 % order;
-                        d2 = d2 % order;
-
-                        if(ec.plus(ec.mul(c1, P), ec.mul(d1, Q)) != X1 || ec.plus(ec.mul(c2, P), ec.mul(d2, Q)) != X2 || !ec.check(X1))
-                        {
-                            std::cerr << "[INFO] c1 * P + d1 * Q != X1 or c2 * P + d2 * Q != X2 or X1 is not on curve." << std::endl;
-                            continue;
-                        }
-                        
-                        T c = c1 - c2; if(c < 0) c += order;
-                        T d = d2 - d1; if(d < 0) d += order;
-                        if(d == 0)
-                        {
-                            std::cerr << "[INFO] d1 == d2" << std::endl;
-                            continue;
-                        }
-
-                        T d_inv = detail::invmod(d, order); if(d_inv < 0) d_inv += order;
-
-                        result = (c * d_inv) % order;
-                        break;
+                        std::cerr << "[INFO] c1 * P + d1 * Q != X1 or c2 * P + d2 * Q != X2 or X1 is not on curve." << std::endl;
+                        continue;
                     }
-                    else
+                    
+                    T c = c1.sub_modp(c2, order);
+                    T d = d2.sub_modp(d1, order);
+                    if(d == 0)
                     {
-                        host_storage[dist_point.point] = std::make_pair(dist_point.c, dist_point.d);
+                        std::cerr << "[INFO] d1 == d2" << std::endl;
+                        continue;
                     }
+
+                    T d_inv = d.inv_modp(order); if(d_inv < 0) d_inv += order;
+                    result = c.mul_modp(d_inv, order);
+
+                    *found = true;
+
+                    break;
                 }
-                tail = tmp_tail;
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                else
+                {
+                    host_storage[dist_point.point] = std::make_pair(dist_point.c, dist_point.d);
+                }
             }
-        });
+            tail = tmp_tail;
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
 
         checkCudaErrors(cudaStreamSynchronize(kernel_stream));
         getLastCudaError("rho_pollard_kernel execution failed");
-        worker.join();
-        auto after = std::chrono::system_clock::now();
+        auto after_iters = std::chrono::system_clock::now();
 
 #ifdef DEBUG
         checkCudaErrors(cudaMemcpyFromSymbol(&num_iter, num_iter_d, sizeof(num_iter), 0, cudaMemcpyDeviceToHost));
 #endif
 
-        time = std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count();
-        iters_per_sec = (num_iter + 0.0) / time * 1000;
+        iters_time = std::chrono::duration_cast<std::chrono::milliseconds>(after_iters - before_iters).count();
+        iters_per_sec = (num_iter + 0.0) / iters_time * 1000;
     }
     
     checkCudaErrors(cudaStreamDestroy(kernel_stream));
@@ -349,6 +363,8 @@ rho_pollard(const Point<T> &Q,
 
     checkCudaErrors(cudaFree(device_buffer));
 
-    return std::make_tuple(result, iters_per_sec, time / 1000);
+    return std::make_tuple(result, iters_per_sec, prep_time, iters_time);
 }
 }   // namespace gpu
+
+#endif // _POLLARD_H
