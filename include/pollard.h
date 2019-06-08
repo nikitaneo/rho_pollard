@@ -13,6 +13,7 @@
 #include <arith.h>
 
 #define POLLARD_SET_COUNT 0x20
+#define POINTS_IN_PARALLEL 200
 
 // For 610m
 #define THREADS_PER_BLOCK 64
@@ -22,52 +23,36 @@
 // #define THREADS_PER_BLOCK 256
 // #define THREADS 19200
 
-#define BUFFER_SIZE 8388608
+#define BUFFER_SIZE 10000
 #define DEBUG
-
-template<class T>
-struct PointCD
-{
-    Point<T> point;
-    T c, d;
-
-    __host__ __device__ PointCD( const Point<T> &p, const T &c, const T &d)
-        : point( p ), c( c ), d( d )
-    {
-        // do nothing
-    }
-
-    __host__ __device__ PointCD()
-    {
-        // do nothing
-    }
-};
 
 namespace cpu
 {
 template<typename T>
-inline void iteration(  Point<T> &r,
-                        T &c, T &d,
-                        const std::vector<T> &a,
-                        const std::vector<T> &b,
-                        const std::vector<Point<T>> &R,
-                        const EllipticCurve<T> &ec )
+inline void iteration(  Point<T> &R,
+                        T &uR, T &vR,
+                        const std::vector<T> &ug,
+                        const std::vector<T> &vg,
+                        const std::vector<Point<T>> &g,
+                        const EllipticCurve<T> &EC )
 {
-    unsigned index = r.getX() & (POLLARD_SET_COUNT - 1);
-    ec.addition(r, R[index]);
-    c += a[index];
-    d += b[index];
+    unsigned index = R.getX() & (POLLARD_SET_COUNT - 1);
+    EC.addition(R, g[index]);
+    uR += ug[index];
+    vR += vg[index];
 }
 
 // Solve Q = xP
 template<typename T>
 std::tuple<T, double, unsigned long long, unsigned long long>
-rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const EllipticCurve<T> &ec )
+rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const EllipticCurve<T> &EC )
 {
-    T c1, c2, d1, d2;
-    std::vector<T> a(POLLARD_SET_COUNT);
-    std::vector<T> b(POLLARD_SET_COUNT);
-    std::vector<Point<T>> R(POLLARD_SET_COUNT, P);
+    Point<T> R1, R2;
+    T u1, u2, v1, v2;
+
+    std::vector<Point<T>> g(POLLARD_SET_COUNT, P);
+    std::vector<T> ug(POLLARD_SET_COUNT);
+    std::vector<T> vg(POLLARD_SET_COUNT);
     
     double iters_per_sec = 0;
     unsigned long long prep_time = 0, iters_time = 0;
@@ -76,15 +61,14 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
         auto before_prep = std::chrono::system_clock::now();
         for(unsigned i = 0; i < POLLARD_SET_COUNT; i++)
         {
-            a[i].random(order);
-            b[i].random(order) ;
-            R[i] = ec.plus(ec.mul(a[i], P), ec.mul(b[i], Q));
+            ug[i].random(order);
+            vg[i].random(order) ;
+            g[i] = EC.plus(EC.mul(ug[i], P), EC.mul(vg[i], Q));
         }
 
-        c1 = c2.random(order);
-        d1 = d2.random(order);
-        Point<T> X1 = ec.plus(ec.mul(c1, P), ec.mul(d1, Q));
-        Point<T> X2 = X1;
+        u1 = u2.random(order);
+        v1 = v2.random(order);
+        R2 = R1 = EC.plus(EC.mul(u1, P), EC.mul(v1, Q));
         auto after_prep = std::chrono::system_clock::now();
         prep_time = std::chrono::duration_cast<std::chrono::milliseconds>(after_prep - before_prep).count();
         
@@ -92,63 +76,81 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
         auto before_iters = std::chrono::system_clock::now();  
         do
         {
-            iteration(X1, c1, d1, a, b, R, ec);
+            iteration(R1, u1, v1, ug, vg, g, EC);
 
-            iteration(X2, c2, d2, a, b, R, ec);
-            iteration(X2, c2, d2, a, b, R, ec);
+            iteration(R2, u2, v2, ug, vg, g, EC);
+            iteration(R2, u2, v2, ug, vg, g, EC);
             iters += 3;
         }
-        while(X1 != X2);
+        while(R1 != R2);
 
         auto after_iters = std::chrono::system_clock::now();
         iters_time = std::chrono::duration_cast<std::chrono::milliseconds>(after_iters - before_iters).count();
         iters_per_sec = (iters * 3.0) / iters_time * 1000;
 
-        c1 %= order; d1 %= order;
-        c2 %= order; d2 %= order;
+        u1 %= order; v1 %= order;
+        u2 %= order; v2 %= order;
 
-        if(ec.plus(ec.mul(c2, P), ec.mul(d2, Q)) != X2 || ec.plus(ec.mul(c1, P), ec.mul(d1, Q)) != X1 || !ec.check(X1))
+        if(EC.plus(EC.mul(u2, P), EC.mul(v2, Q)) != R2 || EC.plus(EC.mul(u1, P), EC.mul(v1, Q)) != R1 || !EC.check(R1))
         {
-            std::cerr << "[INFO] c1 * P + d1 * Q != X1 or c2 * P + d2 * Q != X2 or X1 is not on curve." << std::endl;
+            std::cerr << "[INFO] u1 * P + v1 * Q != R1 or u2 * P + v2 * Q != R2 or R1 is not on curve." << std::endl;
             continue;
         }
 
-        T c = c2.sub_modp(c1, order);
-        T d = d1.sub_modp(d2, order);
-        if(d == 0)
+        T u = u2.sub_modp(u1, order);
+        T v = v1.sub_modp(v2, order);
+        if(v == 0)
         {
-            std::cerr << "[INFO] d1 == d2" << std::endl;
+            std::cerr << "[INFO] v1 == v2" << std::endl;
             continue;
         }
 
-        T d_inv = d.inv_modp(order); if(d_inv < 0) d_inv += order;
+        T v_inv = v.inv_modp(order); if(v_inv < 0) v_inv += order;
 
-        return std::make_tuple(c.mul_modp(d_inv, order), iters_per_sec, prep_time, iters_time);
+        return std::make_tuple(u.mul_modp(v_inv, order), iters_per_sec, prep_time, iters_time);
     }
 }
 }   // namespace cpu
 
 namespace gpu
 {
-// Support up to 256 bit arithmetics
-__constant__ uint32_t a_const[POLLARD_SET_COUNT * 8];
-__constant__ uint32_t b_const[POLLARD_SET_COUNT * 8];
+template<class T>
+struct PointWithCoeffs
+{
+    Point<T> point;
+    T u, v;
 
-__constant__ uint32_t R_const[POLLARD_SET_COUNT * 16];
+    __host__ __device__ PointWithCoeffs( const Point<T> &p, const T &u, const T &v)
+        : point( p ), u( u ), v( v )
+    {
+        // do nothing
+    }
+
+    __host__ __device__ PointWithCoeffs()
+    {
+        // do nothing
+    }
+};
+
+// Support up to 256 bit arithmetics
+__constant__ uint32_t ug_const[POLLARD_SET_COUNT * 8];
+__constant__ uint32_t vg_const[POLLARD_SET_COUNT * 8];
+
+__constant__ uint32_t g_const[POLLARD_SET_COUNT * 16];
 
 #ifdef DEBUG
 __device__ unsigned long long num_iter_d = 0;
 #endif
 
 template<typename T>
-__global__ void rho_pollard_kernel( Point<T> *X_arr,
-                                    T *c_arr,
-                                    T *d_arr,
-                                    PointCD<T> *buffer,
+__global__ void rho_pollard_kernel( Point<T> *R_arr,
+                                    T *u_arr,
+                                    T *v_arr,
+                                    PointWithCoeffs<T> *buffer,
                                     int *buffer_tail_d,
                                     bool *found_d,
                                     unsigned pattern,
-                                    const EllipticCurve<T> ec_const)
+                                    const EllipticCurve<T> EC)
 {
     volatile __shared__ bool someoneFoundIt;
 
@@ -160,28 +162,69 @@ __global__ void rho_pollard_kernel( Point<T> *X_arr,
 
     unsigned idx = threadIdx.x + blockDim.x * blockIdx.x;
 
-    T c = c_arr[idx], d = d_arr[idx];
-    Point<T> X = X_arr[idx];
-
     unsigned long long num_iter = 0;
     unsigned index = 0;
+    T diff_buff[POINTS_IN_PARALLEL];
+    T chain_buff[POINTS_IN_PARALLEL];
+    T inv_diff, inverse, product;
+    Point<T> R;
     while( !someoneFoundIt )
     {
-        index = X.getX() & (POLLARD_SET_COUNT - 1);
-        ec_const.addition(X, ((Point<T> *)R_const)[index]);
-        c += ((T *)a_const)[index];
-        d += ((T *)b_const)[index];
-
-#ifdef DEBUG
-        num_iter++;
-#endif
-        if((X.getX() & pattern) == 0)
+        // Prepare for Montgomery inversion trick
+        // Multiply differences together
+        product = 1;
+        for(int i = 0; i < POINTS_IN_PARALLEL; ++i)
         {
-            int tail = *buffer_tail_d;
-            *buffer_tail_d = (*buffer_tail_d + 1) % BUFFER_SIZE;
-            buffer[tail] = PointCD<T>(X, c, d);
+            R = R_arr[idx * POINTS_IN_PARALLEL + i];
+            index = R.getX() & (POLLARD_SET_COUNT - 1);
+            T diff = R.getX().sub_modp(reinterpret_cast<Point<T>*>(g_const)[index].getX(), EC.getP());
+            diff_buff[i] = diff;
+            product = product.mul_modp(diff, EC.getP());
+            chain_buff[i] = product;
         }
 
+        // Compute inverse
+        inverse = product.inv_modp(EC.getP());
+
+        // Extract inverse of the differences
+        for(int i = POINTS_IN_PARALLEL - 1; i >= 0; i--)
+        {
+            // Get the inverse of the last difference by multiplying the inverse of the product of all the differences
+            // with the product of all but the last difference
+            if(i >= 1)
+            {
+                T tmp = chain_buff[i - 1];
+                inv_diff = inverse.mul_modp(tmp, EC.getP());
+
+                // Cancel out the last difference
+                tmp = diff_buff[i];
+                inverse = inverse.mul_modp(tmp, EC.getP());
+            }
+            else
+            {
+                inv_diff = inverse;
+            }
+            
+            R = R_arr[idx * POINTS_IN_PARALLEL + i];
+            index = R.getX() & (POLLARD_SET_COUNT - 1);
+            EC.addition(R, reinterpret_cast<Point<T>*>(g_const)[index], inv_diff);
+
+            R_arr[idx * POINTS_IN_PARALLEL + i] = R;
+            u_arr[idx * POINTS_IN_PARALLEL + i] += reinterpret_cast<T *>(ug_const)[index];
+            v_arr[idx * POINTS_IN_PARALLEL + i] += reinterpret_cast<T *>(vg_const)[index];
+
+#ifdef DEBUG
+            num_iter++;
+#endif
+
+            if((R.getX() & pattern) == 0)
+            {
+                int tail = *buffer_tail_d;
+                *buffer_tail_d = (*buffer_tail_d + 1) % BUFFER_SIZE;
+                buffer[tail] = PointWithCoeffs<T>(R, u_arr[idx * POINTS_IN_PARALLEL + i], v_arr[idx * POINTS_IN_PARALLEL + i]);
+            }
+        }
+        
         if(threadIdx.x == 0 && *found_d)
             someoneFoundIt = true;
     }
@@ -202,24 +245,25 @@ rho_pollard(const Point<T> &Q,
     checkCudaErrors(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1));
 
     // Host memory
-    T c_host[THREADS], d_host[THREADS];
-    T a_host[POLLARD_SET_COUNT], b_host[POLLARD_SET_COUNT];
-    Point<T> R_host[POLLARD_SET_COUNT];
-    Point<T> X_host[THREADS];
+    Point<T> R_host[THREADS*POINTS_IN_PARALLEL];
+    T u_host[THREADS*POINTS_IN_PARALLEL], v_host[THREADS*POINTS_IN_PARALLEL];
+
+    Point<T> g_host[POLLARD_SET_COUNT];
+    T ug_host[POLLARD_SET_COUNT], vg_host[POLLARD_SET_COUNT];
 
     // Device memory
-    T *c_device = nullptr, *d_device = nullptr;
-    Point<T> *X_device = nullptr;
-    PointCD<T> *device_buffer = nullptr;
+    T *u_device = nullptr, *v_device = nullptr;
+    Point<T> *R_device = nullptr;
+    PointWithCoeffs<T> *device_buffer = nullptr;
 
     unsigned pattern = (1 << (ec.getP().bitlength() / 4)) - 1;
 
-    checkCudaErrors(cudaMalloc((void **)&c_device, sizeof(c_host)));
-    checkCudaErrors(cudaMalloc((void **)&d_device, sizeof(d_host)));
+    checkCudaErrors(cudaMalloc((void **)&u_device, sizeof(u_host)));
+    checkCudaErrors(cudaMalloc((void **)&v_device, sizeof(v_host)));
 
-    checkCudaErrors(cudaMalloc((void **)&X_device, sizeof(X_host)));
+    checkCudaErrors(cudaMalloc((void **)&R_device, sizeof(R_host)));
 
-    checkCudaErrors(cudaMalloc((void **)&device_buffer, BUFFER_SIZE * sizeof(PointCD<T>)));
+    checkCudaErrors(cudaMalloc((void **)&device_buffer, BUFFER_SIZE * sizeof(PointWithCoeffs<T>)));
 
     volatile int *buffer_tail = nullptr;
     int *buffer_tail_d = nullptr;
@@ -247,27 +291,27 @@ rho_pollard(const Point<T> &Q,
         auto before_prep = std::chrono::system_clock::now();
         for(unsigned i = 0; i < POLLARD_SET_COUNT; i++)
         {
-            a_host[i].random(order);
-            b_host[i].random(order);
-            R_host[i] = ec.plus(ec.mul(a_host[i], P), ec.mul(b_host[i], Q));
+            ug_host[i].random(order);
+            vg_host[i].random(order);
+            g_host[i] = ec.plus(ec.mul(ug_host[i], P), ec.mul(vg_host[i], Q));
         }
 
-        for(unsigned i = 0; i < THREADS; i++)
+        for(unsigned i = 0; i < THREADS*POINTS_IN_PARALLEL; i++)
         {
-            c_host[i].random(order);
-            d_host[i].random(order);  
-            X_host[i] = ec.plus(ec.mul(c_host[i], P), ec.mul(d_host[i], Q));
+            u_host[i].random(order);
+            v_host[i].random(order);  
+            R_host[i] = ec.plus(ec.mul(u_host[i], P), ec.mul(v_host[i], Q));
         }      
         
-        checkCudaErrors(cudaMemcpy((void *)c_device, (const void*)c_host, sizeof(c_host), cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemcpy((void *)d_device, (const void*)d_host, sizeof(d_host), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy((void *)u_device, (const void*)u_host, sizeof(u_host), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy((void *)v_device, (const void*)v_host, sizeof(v_host), cudaMemcpyHostToDevice));
 
-        checkCudaErrors(cudaMemcpyToSymbol(a_const, a_host, sizeof(a_host)));
-        checkCudaErrors(cudaMemcpyToSymbol(b_const, b_host, sizeof(b_host)));
+        checkCudaErrors(cudaMemcpyToSymbol(ug_const, ug_host, sizeof(ug_host)));
+        checkCudaErrors(cudaMemcpyToSymbol(vg_const, vg_host, sizeof(vg_host)));
 
-        checkCudaErrors(cudaMemcpyToSymbol(R_const, R_host, sizeof(R_host)));
+        checkCudaErrors(cudaMemcpyToSymbol(g_const, g_host, sizeof(g_host)));
 
-        checkCudaErrors(cudaMemcpy((void *)X_device, (const void*)X_host, sizeof(X_host), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy((void *)R_device, (const void*)R_host, sizeof(R_host), cudaMemcpyHostToDevice));
 
 #ifdef DEBUG
         unsigned long long num_iter = 0;
@@ -279,9 +323,9 @@ rho_pollard(const Point<T> &Q,
 
         // Kerner invocation here
         auto before_iters = std::chrono::system_clock::now();
-        rho_pollard_kernel<<<THREADS / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, kernel_stream>>>(   X_device, 
-                                                                                                    c_device,
-                                                                                                    d_device,
+        rho_pollard_kernel<<<THREADS / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, kernel_stream>>>(   R_device, 
+                                                                                                    u_device,
+                                                                                                    v_device,
                                                                                                     device_buffer,
                                                                                                     buffer_tail_d,
                                                                                                     found_d,
@@ -292,7 +336,7 @@ rho_pollard(const Point<T> &Q,
         // Collision search
         int tail = 0;
         std::unordered_map<Point<T>, std::pair<T, T>, detail::HashFunc> host_storage;
-        PointCD<T> dist_point;
+        PointWithCoeffs<T> dist_point;
         while( !(*found) )
         {
             int tmp_tail = *buffer_tail;
@@ -303,28 +347,28 @@ rho_pollard(const Point<T> &Q,
                 auto iter = host_storage.find( dist_point.point );
                 if(iter != host_storage.end())
                 {
-                    Point<T> X1 = dist_point.point, X2 = iter->first;
-                    T c1 = dist_point.c, c2 = iter->second.first, d1 = dist_point.d, d2 = iter->second.second;
+                    Point<T> R1 = dist_point.point, R2 = iter->first;
+                    T u1 = dist_point.u, u2 = iter->second.first, v1 = dist_point.v, v2 = iter->second.second;
 
-                    c1 %= order; d1 %= order;
-                    c2 %= order; d2 %= order;
+                    u1 %= order; v1 %= order;
+                    u2 %= order; v2 %= order;
 
-                    if(ec.plus(ec.mul(c1, P), ec.mul(d1, Q)) != X1 || ec.plus(ec.mul(c2, P), ec.mul(d2, Q)) != X2 || !ec.check(X1))
+                    if(ec.plus(ec.mul(u1, P), ec.mul(v1, Q)) != R1 || ec.plus(ec.mul(u2, P), ec.mul(v2, Q)) != R2 || !ec.check(R1))
                     {
-                        std::cerr << "[INFO] c1 * P + d1 * Q != X1 or c2 * P + d2 * Q != X2 or X1 is not on curve." << std::endl;
+                        std::cerr << "[INFO] u1 * P + v1 * Q != R1 or u2 * P + v2 * Q != R2 or R1 is not on curve." << std::endl;
                         continue;
                     }
                     
-                    T c = c1.sub_modp(c2, order);
-                    T d = d2.sub_modp(d1, order);
-                    if(d == 0)
+                    T u = u1.sub_modp(u2, order);
+                    T v = v2.sub_modp(v1, order);
+                    if(v == 0)
                     {
-                        std::cerr << "[INFO] d1 == d2" << std::endl;
+                        std::cerr << "[INFO] v1 == v2" << std::endl;
                         continue;
                     }
 
-                    T d_inv = d.inv_modp(order); if(d_inv < 0) d_inv += order;
-                    result = c.mul_modp(d_inv, order);
+                    T v_inv = v.inv_modp(order); if(v_inv < 0) v_inv += order;
+                    result = u.mul_modp(v_inv, order);
 
                     *found = true;
 
@@ -332,7 +376,7 @@ rho_pollard(const Point<T> &Q,
                 }
                 else
                 {
-                    host_storage[dist_point.point] = std::make_pair(dist_point.c, dist_point.d);
+                    host_storage[dist_point.point] = std::make_pair(dist_point.u, dist_point.v);
                 }
             }
             tail = tmp_tail;
@@ -356,10 +400,10 @@ rho_pollard(const Point<T> &Q,
 
     checkCudaErrors(cudaFreeHost((void *)buffer_tail));
 
-    checkCudaErrors(cudaFree(c_device));
-    checkCudaErrors(cudaFree(d_device));
+    checkCudaErrors(cudaFree(u_device));
+    checkCudaErrors(cudaFree(v_device));
 
-    checkCudaErrors(cudaFree(X_device));
+    checkCudaErrors(cudaFree(R_device));
 
     checkCudaErrors(cudaFree(device_buffer));
 

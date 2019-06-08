@@ -154,21 +154,21 @@ TEST(detail, inverse)
 
 TEST(detail, point_addition)
 {
-    base_uint<4> p = 967;
-    base_uint<4> a = 0;
-    base_uint<4> b = 7;
+    base_uint<2> p = 967;
+    base_uint<2> a = 0;
+    base_uint<2> b = 7;
 
-    EllipticCurve<base_uint<4>> ec(a, b, p);
-    Point<base_uint<4>> P(47, 19);
-    base_uint<4> order = 907;
+    EllipticCurve<base_uint<2>> ec(a, b, p);
+    Point<base_uint<2>> P(47, 19);
+    base_uint<2> order = 907;
 
-    Point<base_uint<4>> O(0, 0);
+    Point<base_uint<2>> O(0, 0);
     ASSERT_EQ(ec.plus(P, O), P);
 
-    Point<base_uint<4>> P2 = ec.plus(P, P);
-    ASSERT_EQ(P2, Point<base_uint<4>>(895, 656));
+    Point<base_uint<2>> P2 = ec.plus(P, P);
+    ASSERT_EQ(P2, Point<base_uint<2>>(895, 656));
 
-    ASSERT_EQ(ec.plus(P, P2), Point<base_uint<4>>(57, 774));
+    ASSERT_EQ(ec.plus(P, P2), Point<base_uint<2>>(57, 774));
 }
 
 TEST(detail, teske)
@@ -263,7 +263,7 @@ TEST_F(bits45_curve, cpu)
     std::cout << "[bits45_cpu] Total time: " << std::get<2>( result ) + std::get<3>( result ) << " ms." << std::endl;
 }
 
-/*
+
 TEST_F(bits55_curve, cpu)
 {
     auto result = cpu::rho_pollard<base_uint<4>>(ec.mul(m, g), g, order, ec);
@@ -329,7 +329,6 @@ TEST_F(bits79_curve, gpu)
     std::cout << "[bits79_gpu] Calculation time: " << std::get<3>( result ) << " ms." << std::endl;
     std::cout << "[bits79_gpu] Total time: " << std::get<2>( result ) + std::get<3>( result ) << " ms." << std::endl;
 }
-*/
 
 int main(int argc, char ** argv)
 {

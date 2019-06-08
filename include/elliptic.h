@@ -76,9 +76,17 @@ class EllipticCurve
         return Point<T>(xR, yR);
     }
 
-    CUDA_CALLABLE void addition(Point<T> &lhs, const Point<T> &rhs) const
+    __host__ void addition(Point<T> &lhs, const Point<T> &rhs) const
     {
         T s = lhs.y.sub_modp(rhs.y, P).div_modp(lhs.x.sub_modp(rhs.x, P), P);
+        T xR = s.mul_modp(s, P).sub_modp(lhs.x, P).sub_modp(rhs.x, P);
+        lhs.y = s.mul_modp(lhs.x.sub_modp(xR, P), P).sub_modp(lhs.y, P);
+        lhs.x = xR;
+    }
+
+    __device__ void addition(Point<T> &lhs, const Point<T> &rhs, const T &inv) const
+    {
+        T s = lhs.y.sub_modp(rhs.y, P).mul_modp(inv, P);
         T xR = s.mul_modp(s, P).sub_modp(lhs.x, P).sub_modp(rhs.x, P);
         lhs.y = s.mul_modp(lhs.x.sub_modp(xR, P), P).sub_modp(lhs.y, P);
         lhs.x = xR;
@@ -122,11 +130,11 @@ template<typename T>
 class Point
 {
     friend class EllipticCurve<T>;
+
     T x;
     T y;
 
 public:
-
     CUDA_CALLABLE Point() { }
 
     CUDA_CALLABLE Point(const T &x, const T &y)
@@ -155,9 +163,9 @@ public:
         return hash;
     }
 
-    CUDA_CALLABLE const T& getX() const { return x; }
+    CUDA_CALLABLE T& getX() { return x; }
 
-    CUDA_CALLABLE const T& getY() const { return y; }
+    CUDA_CALLABLE T& getY() { return y; }
 
     CUDA_CALLABLE friend bool operator==(const Point &lhs, const Point &rhs)
     {
