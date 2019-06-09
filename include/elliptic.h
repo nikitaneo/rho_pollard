@@ -2,6 +2,7 @@
 #define ELLIPTIC_H
 
 #include <iostream>
+#include <unordered_map>
 
 #define CUDA_CALLABLE __host__ __device__
 
@@ -23,7 +24,7 @@ class EllipticCurve
     }
 
     // Initialize EC as y^2 = x^3 + ax + b
-    CUDA_CALLABLE EllipticCurve(const T &a, const T &b, const T &p)
+    __host__ EllipticCurve(const T &a, const T &b, const T &p)
         : a(a), b(b), P(p)
     {
     }
@@ -35,7 +36,7 @@ class EllipticCurve
 
     // core of the doubling multiplier algorithm (see below)
     // multiplies acc by m as a series of "2*acc's"
-    CUDA_CALLABLE void addDouble(const T &m, Point<T> &p) const
+    __host__ void addDouble(const T &m, Point<T> &p) const
     {
         Point<T> r = p;
         for(T n = 0; n < m; ++n)
@@ -45,7 +46,7 @@ class EllipticCurve
         p = r;
     }
 
-    CUDA_CALLABLE Point<T> plus(const Point<T> &lhs, const Point<T> &rhs) const
+    __host__ Point<T> plus(const Point<T> &lhs, const Point<T> &rhs) const
     {
         if(lhs.x == 0 && lhs.y == 0)
         {
@@ -92,29 +93,52 @@ class EllipticCurve
         lhs.x = xR;
     }
 
-    CUDA_CALLABLE Point<T> mul(const T &k, const Point<T> &rhs) const
+    __host__ Point<T> mul(T k, const Point<T> &rhs) const
     {
         Point<T> acc = rhs;
         Point<T> res(0, 0);
-        T i = 0, j = 0;
-        T b = k;
 
-        while(b != 0)
+        while(k != 0)
         {
-            if((b & 1) != 0)
+            if((k & 1) != 0)
             {
-                // bit is set; acc = 2^(i-j)*acc
-                addDouble(i - j, acc);
                 res = plus(res, acc);
-                j = i; // last bit set
             }
-            b >>= 1;
-            ++i;
+            
+            k >>= 1;
+            acc = plus(acc, acc);
         }
         return res;
     }
 
-    CUDA_CALLABLE bool check( const Point<T> &p ) const
+    __host__ Point<T> mul(T k, const Point<T> &rhs, std::unordered_map<unsigned, Point<T>> &cash) const
+    {
+        unsigned pow2 = 0;
+        Point<T> acc = rhs;
+        Point<T> res(0, 0);
+
+        while(k != 0)
+        {
+            if((k & 1) != 0)
+            {
+                res = plus(res, acc);
+            }
+            
+            k >>= 1; pow2++;
+            if(cash.find(pow2) != cash.end())
+            {
+                acc = cash[pow2];
+            }
+            else
+            {
+                acc = plus(acc, acc);
+                cash[pow2] = acc;
+            }
+        }
+        return res;
+    }
+
+    __host__ bool check( const Point<T> &p ) const
     {
         if((p.x == 0 && p.y == 0) || (p.y.mul_modp(p.y, P) == p.x.mul_modp(p.x, P).mul_modp(p.x, P).add_modp(p.x.mul_modp(a, P).add_modp(b, P), P)))
             return true;

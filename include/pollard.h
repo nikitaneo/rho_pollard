@@ -283,6 +283,9 @@ rho_pollard(const Point<T> &Q,
     T result = 0;
     double iters_per_sec = 0;
     unsigned long long iters_time = 0, prep_time = 0;
+
+    std::unordered_map<unsigned, Point<T>> cashP;   // cash to store k -> (2^k)*P
+    std::unordered_map<unsigned, Point<T>> cashQ;   // cash to store k -> (2^k)*P
     while( !(*found) )
     {
         *buffer_tail = 0;
@@ -293,14 +296,14 @@ rho_pollard(const Point<T> &Q,
         {
             ug_host[i].random(order);
             vg_host[i].random(order);
-            g_host[i] = ec.plus(ec.mul(ug_host[i], P), ec.mul(vg_host[i], Q));
+            g_host[i] = ec.plus(ec.mul(ug_host[i], P, cashP), ec.mul(vg_host[i], Q, cashQ));
         }
 
         for(unsigned i = 0; i < THREADS*POINTS_IN_PARALLEL; i++)
         {
             u_host[i].random(order);
             v_host[i].random(order);  
-            R_host[i] = ec.plus(ec.mul(u_host[i], P), ec.mul(v_host[i], Q));
+            R_host[i] = ec.plus(ec.mul(u_host[i], P, cashP), ec.mul(v_host[i], Q, cashQ));
         }      
         
         checkCudaErrors(cudaMemcpy((void *)u_device, (const void*)u_host, sizeof(u_host), cudaMemcpyHostToDevice));
