@@ -73,6 +73,9 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
         prep_time = std::chrono::duration_cast<std::chrono::milliseconds>(after_prep - before_prep).count();
         
         unsigned long long iters = 0;
+
+        bool stop_count_iters = false;
+
         auto before_iters = std::chrono::system_clock::now();  
         do
         {
@@ -81,12 +84,22 @@ rho_pollard( const Point<T> &Q, const Point<T> &P, const T &order, const Ellipti
             iteration(R2, u2, v2, ug, vg, g, EC);
             iteration(R2, u2, v2, ug, vg, g, EC);
             iters += 3;
+
+            if( !stop_count_iters && iters >= 100000 )
+            {
+                stop_count_iters = true;
+                auto t_now = std::chrono::system_clock::now();
+                unsigned long long t = std::chrono::duration_cast<std::chrono::milliseconds>(t_now - before_iters).count();
+                std::cout << "[INFO] Performance: " << (iters + 0.0) / t * 1000 << " p.a./s" << std::endl;
+                return std::make_tuple(T(0), 0, 0, 0);
+            }
+
         }
         while(R1 != R2);
 
         auto after_iters = std::chrono::system_clock::now();
         iters_time = std::chrono::duration_cast<std::chrono::milliseconds>(after_iters - before_iters).count();
-        iters_per_sec = (iters * 3.0) / iters_time * 1000;
+        iters_per_sec = (iters + 0.0) / iters_time * 1000;
 
         u1 %= order; v1 %= order;
         u2 %= order; v2 %= order;
@@ -162,7 +175,7 @@ __global__ void rho_pollard_kernel( Point<T> *R_arr,
 
     unsigned idx = threadIdx.x + blockDim.x * blockIdx.x;
 
-    unsigned long long num_iter = 0;
+    // unsigned long long num_iter = 0;
     unsigned index = 0;
     T diff_buff[POINTS_IN_PARALLEL];
     T chain_buff[POINTS_IN_PARALLEL];
@@ -214,7 +227,7 @@ __global__ void rho_pollard_kernel( Point<T> *R_arr,
             v_arr[idx * POINTS_IN_PARALLEL + i] += reinterpret_cast<T *>(vg_const)[index];
 
 #ifdef DEBUG
-            num_iter++;
+            atomicAdd(&num_iter_d, 1);
 #endif
 
             if((R.getX() & pattern) == 0)
@@ -230,7 +243,7 @@ __global__ void rho_pollard_kernel( Point<T> *R_arr,
     }
 
 #ifdef DEBUG
-    atomicAdd(&num_iter_d, num_iter);
+    // atomicAdd(&num_iter_d, num_iter);
 #endif
 }
 
@@ -340,6 +353,7 @@ rho_pollard(const Point<T> &Q,
         int tail = 0;
         std::unordered_map<Point<T>, std::pair<T, T>, detail::HashFunc> host_storage;
         PointWithCoeffs<T> dist_point;
+        bool stop_count_iters = false;
         while( !(*found) )
         {
             int tmp_tail = *buffer_tail;
@@ -350,6 +364,18 @@ rho_pollard(const Point<T> &Q,
                 auto iter = host_storage.find( dist_point.point );
                 if(iter != host_storage.end())
                 {
+#ifdef DEBUG
+                    checkCudaErrors(cudaMemcpyFromSymbolAsync(&num_iter, num_iter_d, sizeof(num_iter), 0, cudaMemcpyDeviceToHost, memory_stream));
+                    if( !stop_count_iters )
+                    {
+                        stop_count_iters = true;
+                        auto t_now = std::chrono::system_clock::now();
+                        unsigned long long t = std::chrono::duration_cast<std::chrono::milliseconds>(t_now - before_iters).count();
+                        std::cout << "[INFO] Performance: " << (num_iter + 0.0) / t * 1000 << " p.a./s" << std::endl;
+                        *found = true;
+                        return std::make_tuple(T(0), 0, 0, 0);
+                    }
+#endif
                     Point<T> R1 = dist_point.point, R2 = iter->first;
                     T u1 = dist_point.u, u2 = iter->second.first, v1 = dist_point.v, v2 = iter->second.second;
 
